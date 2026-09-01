@@ -31,21 +31,34 @@ look it up by ISIN or CUSIP.
 
 ## Status
 
-**Pre-alpha / scaffold.** What actually works today:
+**Pre-alpha.** What actually works today, against the real live API/data
+(not mocked):
 
 - ✅ `agency_mbs.isin` — ISIN → CUSIP extraction, with real check-digit
   validation on both the ISIN and the CUSIP (tested against a real Ginnie
   Mae ISIN).
+- ✅ `agency_mbs.fetch` — public, unauthenticated endpoints: the full bulk
+  file catalog (`fetch_disclosure_catalog`), layout/sample files
+  (`fetch_layout_sample_files`), and downloading those public assets.
+  Reverse-engineered from `bulk.ginniemae.gov`'s own Angular bundle — see
+  the module docstring for exactly how.
+- ✅ `agency_mbs.parse` — real fixed-width parser for the "FACTOR A G I"
+  (Ginnie Mae I) file, built against the agency's own published layout PDF
+  and verified against its real public sample file (15/15 records parse
+  correctly, checked into `tests/fixtures/`).
 - ✅ `agency_mbs.store` — SQLite schema + upsert/read for monthly pool-factor
   history.
 - ✅ `agency_mbs.cli` — `agency-mbs lookup <ISIN|CUSIP>` against whatever is
   already in the local database.
-- ❌ `agency_mbs.fetch` / `agency_mbs.parse` — **not implemented yet.**
-  `bulk.ginniemae.gov` is confirmed as the right source (see below) but it
-  renders through JavaScript, so the exact request shape for one month of
-  Single Family pool-level factor data still needs to be captured from a
-  browser before the fetcher can be written for real. See the module
-  docstrings in `src/agency_mbs/fetch.py` and `src/agency_mbs/parse.py`.
+- ⚠️ **Actual bulk data file download is blocked on a login.** The
+  `/download?dlfile=...` endpoint 302-redirects to a login page without a
+  session cookie — confirmed by request, not assumed. `fetch.download_bulk_file`
+  is implemented and ready to use, but needs a `gm_up_token` cookie from a
+  logged-in ginniemae.gov session (register a free account, log in via
+  browser, copy the cookie). Not something scriptable without that account.
+- ❌ Only the Ginnie Mae I factor layout (`factorA1`) is parsed so far — Ginnie
+  II, Platinum, Additional, and REMIC/CMO tranche files each need their own
+  layout PDF read and their own parser (same pattern, not done yet).
 
 ## Why this project exists
 
@@ -60,12 +73,15 @@ analyzed directly.
 
 ## Data sources
 
-- **Ginnie Mae** — bulk disclosure downloads: <https://bulk.ginniemae.gov/>
-  (daily/weekly/monthly/factor files, Single Family pool level). Layout
-  documentation: [Disclosure Data Download Layouts and Sample
-  Files](https://www.ginniemae.gov/disclosure/disclosure-resources/disclosure-data-download-layouts-and-sample-files)
-  and the `MBS_SingleFamily_Pool_DataDictionary`. Per-CUSIP lookup (useful
-  for spot-checking, not bulk ingestion):
+- **Ginnie Mae** — bulk disclosure. The public site at
+  <https://bulk.ginniemae.gov/> is an Angular SPA; its real backend API
+  (reverse-engineered from the compiled bundle, see `fetch.py`'s docstring)
+  lives at `https://www.ginniemae.gov/bulk-content/api` (catalog + samples,
+  public) and `https://www.ginniemae.gov/disclosure-api/api` (actual file
+  download, **requires a logged-in session**). Layout documentation and
+  real sample files are served publicly per file type from
+  `https://www.ginniemae.gov/s3/sites/default/files/disclosure_data_files/`.
+  Per-CUSIP lookup (useful for spot-checking, not bulk ingestion):
   [Tax and Factor Data Search](https://www.ginniemae.gov/disclosure/disclosure-search-tools/tax-and-factor-data-search).
   Ginnie Mae is a wholly-owned U.S. government corporation (HUD); it is not
   an agency or establishment of the U.S. Government.
@@ -115,10 +131,12 @@ ruff check src/ tests/
 
 ## Roadmap
 
-- [ ] Capture the real `bulk.ginniemae.gov` request for one month of Single
-      Family pool-level factor data; implement `fetch.py` against it.
-- [ ] Get a real sample file + confirm layout against the data dictionary;
-      implement `parse.py` against it.
+- [ ] Register a Ginnie Mae account and wire up an authenticated session
+      so `fetch.download_bulk_file` can pull real monthly files, not just
+      the public samples.
+- [ ] Parsers for Ginnie II, Platinum, Additional, and REMIC/CMO tranche
+      factor files (each needs its own layout PDF read, same pattern as
+      `factorA1`).
 - [ ] Monthly scheduled ingestion (cron/systemd timer).
 - [ ] Freddie Mac source.
 - [ ] REST API / Streamlit dashboard on top of the local database.
