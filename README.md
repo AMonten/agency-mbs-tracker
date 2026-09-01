@@ -47,27 +47,27 @@ look it up by ISIN or CUSIP.
   agency's own published layout PDF and verified against its real public
   sample file (checked into `tests/fixtures/`):
   - Pool-level factors: `factorA1` (Ginnie I), `factorA2` (Ginnie II),
-    `factorAplat` (Platinum) — all three share one 171-char layout and one
-    parser (`parse_pool_factor_line` / `parse_monthly_factor_file`).
+    `factorAplat` (Platinum), `factorAAdd` (Additional) — all four share
+    one parser (`parse_pool_factor_line` / `parse_monthly_factor_file`).
+    `factorAAdd`'s own layout PDF documents 178 bytes (171 + a filler +
+    an MIP-only field this project doesn't use), but its real production
+    rows are 171 bytes whenever that tail is blank — the parser accepts
+    either length for that one prefix.
   - REMIC/CMO tranche factors: `remic1`, `remic2` — a different, 117-char
     tranche-level layout (`parse_remic_tranche_line` /
     `parse_monthly_remic_file`).
-  - `factorAAdd` (Additional) not confirmed to share the pool-level layout
-    yet — not parsed.
 - ✅ `agency_mbs.store` — SQLite schema + upsert/read for monthly
   pool/tranche-factor history, keyed on `pool_id` (not `cusip` — see
   [Architecture](#architecture) for why that matters).
 - ✅ `agency_mbs.cli` — `agency-mbs lookup <ISIN|CUSIP>` against whatever is
   already in the local database.
 - ✅ **Full pipeline works end-to-end against real, live, authenticated
-  data** for all 5 supported prefixes: `agency-mbs ingest <prefix>`
+  data** for all 6 supported prefixes: `agency-mbs ingest <prefix>`
   downloads the current month's real bulk file (needs a `gm_up_token`
   session cookie — see [Authentication](#authentication)), unzips it,
   parses it, and stores it. Verified against the real July 2026 files:
-  106,393 Ginnie I records, 308,073 Ginnie II, 6,979 Platinum, 37,969
-  REMIC1 tranches, 154,085 REMIC2 tranches.
-- ❌ `factorAAdd` (Additional) not parsed yet — same pattern as the other
-  pool-level files, just not done.
+  106,393 Ginnie I records, 308,073 Ginnie II, 308,073 Additional, 6,979
+  Platinum, 37,969 REMIC1 tranches, 154,085 REMIC2 tranches.
 
 ## Why this project exists
 
@@ -168,6 +168,7 @@ parser's own test fixtures) need no login at all.
 agency-mbs ingest factorA1          # Ginnie I pool factors
 agency-mbs ingest factorA2          # Ginnie II pool factors
 agency-mbs ingest factorAplat       # Platinum pool factors
+agency-mbs ingest factorAAdd        # Additional (Ginnie II, MIP-aware) pool factors
 agency-mbs ingest remic1            # REMIC/CMO tranche factors
 agency-mbs ingest remic2            # REMIC/CMO tranche factors (2nd feed)
 agency-mbs lookup US38384CNA35
@@ -183,8 +184,6 @@ ruff check src/ tests/
 
 ## Roadmap
 
-- [ ] Parser for `factorAAdd` (Additional) — needs its own layout PDF
-      checked before assuming it matches the other pool-level files.
 - [ ] Monthly scheduled ingestion (cron/systemd timer).
 - [ ] Freddie Mac source.
 - [ ] REST API / Streamlit dashboard on top of the local database.

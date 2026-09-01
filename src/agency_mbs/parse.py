@@ -10,15 +10,25 @@ column-for-column layout for the fields this project cares about (pool
 number, issuer name, amounts, RPB factor, interest rate, dates, CUSIP) —
 Ginnie II/Platinum just also define ARM-specific fields (margin, interest
 adjustment dates, etc.) in the byte range factorA1 leaves as filler, which
-this parser doesn't need and ignores either way. One function covers all
-three prefixes: `factorA1` (Ginnie I), `factorA2` (Ginnie II), `factorAplat`
-(Platinum). `factorAAdd` (Additional) is not confirmed to share this layout
-yet — check its own layout PDF before assuming it does.
+this parser doesn't need and ignores either way. `factorAAdd_layout.pdf`
+("Factor File A 'Additional' Layout — Ginnie II Pools") uses the exact
+same first 171 bytes plus 7 more (a filler byte and a 6-digit "Factor
+Percentage Complete" field, MIP-only, out of scope for this project) —
+its documented record length is 178, but the *real* production file
+(confirmed via an authenticated download, not just its sample) has every
+one of its 308,073 rows at 171 bytes: the trailing MIP-only tail is
+entirely omitted, not space-padded, when blank. `parse_pool_factor_line` /
+`parse_monthly_factor_file` take a `valid_lengths` override for this
+reason — `factorAAdd` passes `(171, 178)` so either shape parses, while
+factorA1/A2/Aplat still only accept the exact 171. One function covers all
+four prefixes: `factorA1` (Ginnie I), `factorA2` (Ginnie II), `factorAplat`
+(Platinum), `factorAAdd` (Additional).
 
 Each covered against its own real public sample file
-(factorA1_sample.txt / factorA2_sample.txt / factorAplat_sample.txt, same
-directory, checked into tests/fixtures/) — every data line in each sample
-is exactly 171 characters and slices cleanly per this layout.
+(factorA1_sample.txt / factorA2_sample.txt / factorAplat_sample.txt /
+factorAAdd_sample.txt, same directory, checked into tests/fixtures/) —
+every data line in each sample slices cleanly per this layout (the
+factorAAdd sample's lines are 171 chars too, for the same real reason).
 
 Fields NOT available in these files (left as None, not guessed):
 - prior_factor: these files only carry the current period's factor: the
@@ -90,6 +100,10 @@ POOL_FACTOR_LAYOUT = [
     ("cusip", 163, 171),
 ]
 POOL_FACTOR_RECORD_LENGTH = 171
+# factorAAdd's documented length (171 bytes plus a filler + MIP-only tail
+# field this project doesn't use) — its real production rows are 171 bytes
+# whenever that tail is blank, which is effectively always so far.
+ADDITIONAL_RECORD_LENGTH = 178
 
 # (name, begin, end) — 1-indexed, inclusive, for a REMIC data line
 # (record indicator "2") per remic1_layout.pdf / remic2_layout.pdf.
@@ -131,13 +145,17 @@ def period_from_filename(filename: str) -> str:
     return f"{match.group(1)}-{match.group(2)}"
 
 
-def parse_pool_factor_line(line: str) -> dict | None:
-    """Parse one fixed-width pool-factor data line (factorA1/A2/Aplat).
+def parse_pool_factor_line(
+    line: str, *, valid_lengths: tuple[int, ...] = (POOL_FACTOR_RECORD_LENGTH,)
+) -> dict | None:
+    """Parse one fixed-width pool-factor data line (factorA1/A2/Aplat/AAdd).
 
-    Returns None for header/footer/blank lines (anything not exactly
-    POOL_FACTOR_RECORD_LENGTH characters).
+    Returns None for header/footer/blank lines — anything whose length
+    isn't in `valid_lengths`. factorAAdd passes `(171, 178)` since its real
+    rows may or may not carry the MIP-only tail (see module docstring);
+    the other three prefixes use the default, exact-171 check.
     """
-    if len(line) != POOL_FACTOR_RECORD_LENGTH:
+    if len(line) not in valid_lengths:
         return None
     fields = {name: _slice(line, begin, end) for name, begin, end in POOL_FACTOR_LAYOUT}
 
@@ -174,18 +192,21 @@ def parse_pool_factor_line(line: str) -> dict | None:
     }
 
 
-def parse_monthly_factor_file(path: Path) -> list[dict]:
-    """Parse one factorA1/A2/Aplat-format raw file into pool-factor records.
+def parse_monthly_factor_file(
+    path: Path, *, valid_lengths: tuple[int, ...] = (POOL_FACTOR_RECORD_LENGTH,)
+) -> list[dict]:
+    """Parse one factorA1/A2/Aplat/AAdd-format raw file into pool-factor records.
 
     `factor_date` is derived from the filename's YYYYMM period (e.g.
-    "factorA1_202607.zip" -> "2026-07-01").
+    "factorA1_202607.zip" -> "2026-07-01"). Pass `valid_lengths=(171, 178)`
+    for factorAAdd — see parse_pool_factor_line.
     """
     path = Path(path)
     factor_date = f"{period_from_filename(path.name)}-01"
     records = []
     with open(path, encoding="latin-1") as f:
         for line in f:
-            record = parse_pool_factor_line(line.rstrip("\n").rstrip("\r"))
+            record = parse_pool_factor_line(line.rstrip("\n").rstrip("\r"), valid_lengths=valid_lengths)
             if record is not None:
                 record["factor_date"] = factor_date
                 records.append(record)

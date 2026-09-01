@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 
 from agency_mbs.parse import (
+    ADDITIONAL_RECORD_LENGTH,
+    POOL_FACTOR_RECORD_LENGTH,
     parse_monthly_factor_file,
     parse_monthly_remic_file,
     parse_pool_factor_line,
@@ -14,6 +16,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 FACTOR_A1 = FIXTURES / "factorA1_202607.txt"
 FACTOR_A2 = FIXTURES / "factorA2_202607.txt"
 FACTOR_APLAT = FIXTURES / "factorAplat_202607.txt"
+FACTOR_AADD = FIXTURES / "factorAAdd_202607.txt"
 REMIC1 = FIXTURES / "remic1_202607.txt"
 REMIC2 = FIXTURES / "remic2_202607.txt"
 
@@ -107,6 +110,41 @@ def test_parse_monthly_factor_file_platinum():
     assert len(records) == 16
     assert "3622A3CT5" in {r["cusip"] for r in records}
     assert all(r["issuer"] == "GNMA" for r in records)
+
+
+def test_parse_monthly_factor_file_additional():
+    # factorAAdd's own layout PDF documents 178 bytes (same 171 as the
+    # other pool files + a filler byte + an MIP-only "Factor Percentage
+    # Complete" field this project doesn't use), but its real production
+    # rows are 171 bytes whenever that tail is blank — pass both lengths.
+    records = parse_monthly_factor_file(
+        FACTOR_AADD, valid_lengths=(POOL_FACTOR_RECORD_LENGTH, ADDITIONAL_RECORD_LENGTH)
+    )
+    assert len(records) == 13
+    assert "36177XEX2" in {r["cusip"] for r in records}
+
+
+def test_parse_pool_factor_line_additional_accepts_178_bytes():
+    # A genuine 178-byte row (MIP tail present) must still parse — only
+    # verified structurally here since no real 178-byte row has been seen
+    # in production yet (see module docstring).
+    real_171 = FACTOR_AADD.read_text().splitlines()[0]
+    padded_178 = real_171 + " 000000"  # 7 extra bytes: 1 filler + 6-digit pct-complete
+    assert len(padded_178) == ADDITIONAL_RECORD_LENGTH
+    record = parse_pool_factor_line(
+        padded_178, valid_lengths=(POOL_FACTOR_RECORD_LENGTH, ADDITIONAL_RECORD_LENGTH)
+    )
+    assert record is not None
+    assert record["cusip"] == parse_pool_factor_line(real_171)["cusip"]
+
+
+def test_parse_pool_factor_line_additional_rejects_other_lengths():
+    assert (
+        parse_pool_factor_line(
+            "too short", valid_lengths=(POOL_FACTOR_RECORD_LENGTH, ADDITIONAL_RECORD_LENGTH)
+        )
+        is None
+    )
 
 
 def test_parse_remic_tranche_line_real_row():

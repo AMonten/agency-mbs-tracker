@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 import zipfile
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 from agency_mbs.fetch import (
@@ -14,15 +16,23 @@ from agency_mbs.fetch import (
     load_session_cookie,
 )
 from agency_mbs.isin import InvalidCUSIPError, InvalidISINError, isin_to_cusip, validate_cusip
-from agency_mbs.parse import parse_monthly_factor_file, parse_monthly_remic_file
+from agency_mbs.parse import (
+    ADDITIONAL_RECORD_LENGTH,
+    POOL_FACTOR_RECORD_LENGTH,
+    parse_monthly_factor_file,
+    parse_monthly_remic_file,
+)
 from agency_mbs.store import get_connection, get_factor_history, init_db, upsert_factor_records
 
 # Prefixes agency_mbs.parse actually knows how to read today, and which
 # parser handles each (pool-level factor files vs. REMIC tranche files).
-_PREFIX_PARSERS = {
+_PREFIX_PARSERS: dict[str, Callable[[Path], list[dict]]] = {
     "factorA1": parse_monthly_factor_file,
     "factorA2": parse_monthly_factor_file,
     "factorAplat": parse_monthly_factor_file,
+    "factorAAdd": partial(
+        parse_monthly_factor_file, valid_lengths=(POOL_FACTOR_RECORD_LENGTH, ADDITIONAL_RECORD_LENGTH)
+    ),
     "remic1": parse_monthly_remic_file,
     "remic2": parse_monthly_remic_file,
 }
@@ -130,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "prefix",
         help="factorA1 (Ginnie I), factorA2 (Ginnie II), factorAplat (Platinum), "
-        "remic1/remic2 (REMIC/CMO tranches)",
+        "factorAAdd (Additional), remic1/remic2 (REMIC/CMO tranches)",
     )
     ingest.set_defaults(func=cmd_ingest)
 

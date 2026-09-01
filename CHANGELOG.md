@@ -89,3 +89,22 @@
   prints the interest rate and fixed/floating label per period (e.g.
   `tasa=4.700% (flotante)`), and its existing multi-period history already
   covers the "historico" ask.
+
+## 2026-09-01 (continued) — factorAAdd (Additional)
+
+- Added `factorAAdd` (Ginnie II "Additional" factor file) support.
+  `factorAAdd_layout.pdf` documents 178 bytes (the same first 171 as
+  factorA1/A2/Aplat, plus a filler byte and a 6-digit MIP-only "Factor
+  Percentage Complete" field this project doesn't use) — but confirmed
+  against the real production file that every one of its 308,073 rows is
+  actually 171 bytes, since that trailing MIP tail is omitted rather than
+  space-padded when blank (its own sample file showed the same, initially
+  looking like a discrepancy from the spec until checked against real
+  data). `parse_pool_factor_line`/`parse_monthly_factor_file` gained a
+  `valid_lengths` parameter so `factorAAdd` accepts either 171 or 178
+  while the other three prefixes keep their strict, exact-171 check.
+- Verified end-to-end against the live API: 308,073 records stored
+  (303,762 with a factor, 4,311 blank) — matching factorA2's real file
+  count and blank-count exactly, confirming factorAAdd covers the same
+  Ginnie II pool universe as a separate feed. 38/38 tests passing,
+  `ruff`+`mypy` clean.
