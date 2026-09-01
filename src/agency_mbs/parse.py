@@ -23,6 +23,16 @@ Fields NOT available in this file (left as None, not guessed):
 - wam: this file has issue/maturity dates for the *security*, not a
   loan-level weighted average maturity. Real WAM needs loan-level data,
   which is a different disclosure file (llmon).
+
+Confirmed against the real full production file (factorA1_202607.txt,
+106,393 pool records, downloaded via a real authenticated session — not
+just the small sample): ~2.5% of rows (2,668 of 106,393), all with
+`pool_type == "SP"`, have the RPB Factor and Remaining Security RPB fields
+entirely blank (space-filled) rather than zero-filled. This looks like a
+real characteristic of certain pool types in this file, not a parsing bug
+— `current_factor`/`upb_current` are left as `None` for those rows rather
+than coerced to 0, so history stays honest about what the agency actually
+reported.
 """
 
 from __future__ import annotations
@@ -54,6 +64,10 @@ def _slice(line: str, begin: int, end: int) -> str:
     return line[begin - 1 : end].strip()
 
 
+def _int_or_none(s: str) -> int | None:
+    return int(s) if s else None
+
+
 def period_from_filename(filename: str) -> str:
     """Extract "YYYY-MM" from a bulk filename like "factorA1_202607.zip"."""
     match = _PERIOD_RE.search(filename)
@@ -68,13 +82,21 @@ def parse_factor_a1_line(line: str) -> dict | None:
         return None
     fields = {name: _slice(line, begin, end) for name, begin, end in FACTOR_A1_LAYOUT}
 
+    # Numeric fields are occasionally blank (space-filled) rather than
+    # zero-filled in real production files (see module docstring) — treat
+    # blank as "not reported", not as zero.
+    rpb_factor = _int_or_none(fields["rpb_factor"])
+    pool_interest_rate = _int_or_none(fields["pool_interest_rate"])
+    original_aggregate_amount = _int_or_none(fields["original_aggregate_amount"])
+    remaining_security_rpb = _int_or_none(fields["remaining_security_rpb"])
+
     # RPB Factor is 9(1)v9(8): 9 digits, implied decimal after the 1st digit.
-    current_factor = int(fields["rpb_factor"]) / 1e8
+    current_factor = rpb_factor / 1e8 if rpb_factor is not None else None
     # Pool Interest Rate is 9(2)v9(3): 5 digits, implied decimal after the 2nd.
-    pool_interest_rate = int(fields["pool_interest_rate"]) / 1000
+    wac = pool_interest_rate / 1000 if pool_interest_rate is not None else None
     # Amounts are 9(13)v9(2): implied 2 decimal places.
-    original_aggregate_amount = int(fields["original_aggregate_amount"]) / 100
-    remaining_security_rpb = int(fields["remaining_security_rpb"]) / 100
+    upb_original = original_aggregate_amount / 100 if original_aggregate_amount is not None else None
+    upb_current = remaining_security_rpb / 100 if remaining_security_rpb is not None else None
 
     return {
         "cusip": fields["cusip"],
@@ -82,10 +104,10 @@ def parse_factor_a1_line(line: str) -> dict | None:
         "issuer": "GNMA",
         "current_factor": current_factor,
         "prior_factor": None,
-        "wac": pool_interest_rate,
+        "wac": wac,
         "wam": None,
-        "upb_original": original_aggregate_amount,
-        "upb_current": remaining_security_rpb,
+        "upb_original": upb_original,
+        "upb_current": upb_current,
     }
 
 

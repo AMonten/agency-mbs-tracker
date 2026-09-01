@@ -35,6 +35,24 @@ def test_parse_factor_a1_line_real_row():
     assert record["upb_current"] > 0
 
 
+def test_parse_factor_a1_line_blank_factor_is_none_not_zero():
+    # Real row from the production factorA1_202607.txt file (pool_type="SP",
+    # ~2.5% of that file's 106,393 rows have RPB Factor/remaining RPB blank
+    # rather than zero-filled) — must not crash and must not fabricate 0.0.
+    line = (
+        "780412X9999 GNMA PLATINUM SECURITIES                                    "
+        "000030027723900                        07500SP080196081526"
+        "                                36225AN55"
+    )
+    record = parse_factor_a1_line(line)
+    assert record is not None
+    assert record["cusip"] == "36225AN55"
+    assert record["current_factor"] is None
+    assert record["upb_current"] is None
+    assert record["upb_original"] == 300277239.00
+    assert record["wac"] == 7.5
+
+
 def test_parse_factor_a1_line_skips_non_data_lines():
     assert parse_factor_a1_line("Factor A G1 Sample:") is None
     assert parse_factor_a1_line("") is None

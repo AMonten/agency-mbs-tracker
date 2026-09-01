@@ -14,7 +14,8 @@ venv/
 .ipynb_checkpoints/
 .DS_Store
 
-# raw disclosure downloads and local db — reproducible from the source, not tracked
+# raw disclosure downloads, local db, and the ginniemae.gov session cookie — not tracked
 data/raw/*
 !data/raw/.gitkeep
 data/*.db
+data/session_cookie.txt

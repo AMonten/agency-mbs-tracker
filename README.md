@@ -25,6 +25,7 @@ look it up by ISIN or CUSIP.
 - [Data sources](#data-sources)
 - [Architecture](#architecture)
 - [Installation](#installation)
+- [Authentication](#authentication)
 - [Usage](#usage)
 - [Testing](#testing)
 - [Roadmap](#roadmap)
@@ -50,12 +51,13 @@ look it up by ISIN or CUSIP.
   history.
 - ✅ `agency_mbs.cli` — `agency-mbs lookup <ISIN|CUSIP>` against whatever is
   already in the local database.
-- ⚠️ **Actual bulk data file download is blocked on a login.** The
-  `/download?dlfile=...` endpoint 302-redirects to a login page without a
-  session cookie — confirmed by request, not assumed. `fetch.download_bulk_file`
-  is implemented and ready to use, but needs a `gm_up_token` cookie from a
-  logged-in ginniemae.gov session (register a free account, log in via
-  browser, copy the cookie). Not something scriptable without that account.
+- ✅ **Full pipeline works end-to-end against real, live data**, including
+  the authenticated bulk download: `agency-mbs ingest factorA1` downloads
+  the current month's real "FACTOR A G I" bulk file (needs a `gm_up_token`
+  session cookie — see [Authentication](#authentication)), unzips it,
+  parses all ~106k pool records, and stores them. Verified against the real
+  July 2026 file: 106,393 records (103,725 with a factor, 2,668 legitimately
+  blank — see below).
 - ❌ Only the Ginnie Mae I factor layout (`factorA1`) is parsed so far — Ginnie
   II, Platinum, Additional, and REMIC/CMO tranche files each need their own
   layout PDF read and their own parser (same pattern, not done yet).
@@ -93,16 +95,20 @@ analyzed directly.
 ## Architecture
 
 ```
-fetch.py   -> downloads the raw monthly bulk disclosure file, saved as-is under data/raw/
+fetch.py   -> catalog/sample endpoints (public) + bulk file download (needs a session);
+              downloads saved as-is under data/raw/
 parse.py   -> normalizes a raw file into pool-factor records
 store.py   -> SQLite: one row per (cusip, factor_date), history never overwritten
 isin.py    -> ISIN <-> CUSIP, with check-digit validation on both
-cli.py     -> `agency-mbs lookup <ISIN|CUSIP>` over what's in the local database
+cli.py     -> `agency-mbs ingest <prefix>` (fetch+parse+store) and
+              `agency-mbs lookup <ISIN|CUSIP>` (read what's stored)
 ```
 
 Normalized schema (`pool_factors` table): `cusip, pool_id, issuer,
 factor_date, current_factor, prior_factor, wac, wam, upb_original,
-upb_current`.
+upb_current`. `current_factor`/`upb_current`/`wac` can be `NULL` — some
+real pool records (`pool_type == "SP"`) report those fields blank, and the
+parser preserves that rather than coercing to 0.
 
 ## Installation
 
@@ -112,15 +118,32 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+## Authentication
+
+Real bulk file downloads require a logged-in ginniemae.gov session — the
+`disclosure-api/api/download` endpoint 302-redirects to a login page
+without one (confirmed by request, not assumed). To unlock `ingest`:
+
+1. Register a free account at ginniemae.gov and log in via a browser.
+2. Copy the `gm_up_token` cookie value from your browser's dev tools.
+3. Save it directly from your own terminal (not through a shared/logged
+   channel — it's a session credential):
+   ```bash
+   echo -n "<cookie value>" > data/session_cookie.txt
+   ```
+   This file is gitignored and never read by anything except
+   `agency_mbs.fetch.load_session_cookie()`.
+
+The catalog/sample endpoints (used by `lookup` once ingested, and by the
+parser's own test fixtures) need no login at all.
+
 ## Usage
 
 ```bash
+agency-mbs ingest factorA1          # download + parse + store the current month
 agency-mbs lookup US38384CNA35
 agency-mbs lookup 38384CNA3
 ```
-
-Until `fetch`/`parse` are implemented, the local database will be empty —
-the CLI will say so rather than pretending there's data.
 
 ## Testing
 
@@ -131,9 +154,6 @@ ruff check src/ tests/
 
 ## Roadmap
 
-- [ ] Register a Ginnie Mae account and wire up an authenticated session
-      so `fetch.download_bulk_file` can pull real monthly files, not just
-      the public samples.
 - [ ] Parsers for Ginnie II, Platinum, Additional, and REMIC/CMO tranche
       factor files (each needs its own layout PDF read, same pattern as
       `factorA1`).

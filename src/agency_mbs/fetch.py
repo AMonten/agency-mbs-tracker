@@ -50,6 +50,25 @@ DISCLOSURE_API = "https://www.ginniemae.gov/disclosure-api/api"
 GINNIE_MAE_BASE = "https://www.ginniemae.gov"
 
 RAW_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "raw"
+SESSION_COOKIE_PATH = Path(__file__).resolve().parents[2] / "data" / "session_cookie.txt"
+
+
+def load_session_cookie(path: Path = SESSION_COOKIE_PATH) -> str:
+    """Read the gm_up_token value from a local, gitignored file.
+
+    Get this value by registering a free ginniemae.gov account, logging in
+    via a browser, and copying the "gm_up_token" cookie — save it to this
+    file directly from your own terminal (not through a shared/logged
+    channel, since it's a session credential).
+    """
+    path = Path(path)
+    if not path.exists():
+        raise RuntimeError(
+            f"No session cookie found at {path}. Log in to ginniemae.gov in a "
+            "browser, copy the 'gm_up_token' cookie value, and save it to "
+            "that file (plain text, no quotes/newline)."
+        )
+    return path.read_text().strip()
 
 
 def fetch_disclosure_catalog() -> dict:

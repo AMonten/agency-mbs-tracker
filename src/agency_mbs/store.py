@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS pool_factors (
     pool_id         TEXT    NOT NULL,
     issuer          TEXT    NOT NULL,
     factor_date     TEXT    NOT NULL,  -- YYYY-MM-01
-    current_factor  REAL    NOT NULL,
+    current_factor  REAL,  -- NULL when the source file reported it blank (real, not missing data)
     prior_factor    REAL,
     wac             REAL,
     wam             INTEGER,
