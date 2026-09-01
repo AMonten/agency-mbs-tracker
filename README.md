@@ -43,24 +43,31 @@ look it up by ISIN or CUSIP.
   (`fetch_layout_sample_files`), and downloading those public assets.
   Reverse-engineered from `bulk.ginniemae.gov`'s own Angular bundle — see
   the module docstring for exactly how.
-- ✅ `agency_mbs.parse` — real fixed-width parser for the "FACTOR A G I"
-  (Ginnie Mae I) file, built against the agency's own published layout PDF
-  and verified against its real public sample file (15/15 records parse
-  correctly, checked into `tests/fixtures/`).
-- ✅ `agency_mbs.store` — SQLite schema + upsert/read for monthly pool-factor
-  history.
+- ✅ `agency_mbs.parse` — real fixed-width parsers, each built against the
+  agency's own published layout PDF and verified against its real public
+  sample file (checked into `tests/fixtures/`):
+  - Pool-level factors: `factorA1` (Ginnie I), `factorA2` (Ginnie II),
+    `factorAplat` (Platinum) — all three share one 171-char layout and one
+    parser (`parse_pool_factor_line` / `parse_monthly_factor_file`).
+  - REMIC/CMO tranche factors: `remic1`, `remic2` — a different, 117-char
+    tranche-level layout (`parse_remic_tranche_line` /
+    `parse_monthly_remic_file`).
+  - `factorAAdd` (Additional) not confirmed to share the pool-level layout
+    yet — not parsed.
+- ✅ `agency_mbs.store` — SQLite schema + upsert/read for monthly
+  pool/tranche-factor history, keyed on `pool_id` (not `cusip` — see
+  [Architecture](#architecture) for why that matters).
 - ✅ `agency_mbs.cli` — `agency-mbs lookup <ISIN|CUSIP>` against whatever is
   already in the local database.
-- ✅ **Full pipeline works end-to-end against real, live data**, including
-  the authenticated bulk download: `agency-mbs ingest factorA1` downloads
-  the current month's real "FACTOR A G I" bulk file (needs a `gm_up_token`
+- ✅ **Full pipeline works end-to-end against real, live, authenticated
+  data** for all 5 supported prefixes: `agency-mbs ingest <prefix>`
+  downloads the current month's real bulk file (needs a `gm_up_token`
   session cookie — see [Authentication](#authentication)), unzips it,
-  parses all ~106k pool records, and stores them. Verified against the real
-  July 2026 file: 106,393 records (103,725 with a factor, 2,668 legitimately
-  blank — see below).
-- ❌ Only the Ginnie Mae I factor layout (`factorA1`) is parsed so far — Ginnie
-  II, Platinum, Additional, and REMIC/CMO tranche files each need their own
-  layout PDF read and their own parser (same pattern, not done yet).
+  parses it, and stores it. Verified against the real July 2026 files:
+  106,393 Ginnie I records, 308,073 Ginnie II, 6,979 Platinum, 37,969
+  REMIC1 tranches, 154,085 REMIC2 tranches.
+- ❌ `factorAAdd` (Additional) not parsed yet — same pattern as the other
+  pool-level files, just not done.
 
 ## Why this project exists
 
@@ -97,18 +104,28 @@ analyzed directly.
 ```
 fetch.py   -> catalog/sample endpoints (public) + bulk file download (needs a session);
               downloads saved as-is under data/raw/
-parse.py   -> normalizes a raw file into pool-factor records
-store.py   -> SQLite: one row per (cusip, factor_date), history never overwritten
+parse.py   -> normalizes a raw file into pool/tranche-factor records
+store.py   -> SQLite: one row per (pool_id, factor_date), history never overwritten
 isin.py    -> ISIN <-> CUSIP, with check-digit validation on both
 cli.py     -> `agency-mbs ingest <prefix>` (fetch+parse+store) and
               `agency-mbs lookup <ISIN|CUSIP>` (read what's stored)
 ```
 
-Normalized schema (`pool_factors` table): `cusip, pool_id, issuer,
+Normalized schema (`pool_factors` table): `pool_id, cusip, issuer,
 factor_date, current_factor, prior_factor, wac, wam, upb_original,
 upb_current`. `current_factor`/`upb_current`/`wac` can be `NULL` — some
 real pool records (`pool_type == "SP"`) report those fields blank, and the
 parser preserves that rather than coercing to 0.
+
+**Storage is keyed on `pool_id`, not `cusip`.** Confirmed against real
+REMIC production data: Ginnie Mae uses shared placeholder CUSIP values
+(e.g. `"C99999999"`) for tranches that aren't individually CUSIP-eligible
+— in the real August 2026 `remic1` file, 185 distinct real tranches all
+carried that one CUSIP. Keying on `cusip` alone silently collapsed them
+into a single row; `pool_id` (the real pool number, or
+`<series>-<tranche_name>` for REMIC) is what Ginnie Mae actually assigns
+uniquely, so `agency-mbs lookup` on one of these shared CUSIPs correctly
+returns every tranche that shares it, not just the last one ingested.
 
 ## Installation
 
@@ -140,7 +157,11 @@ parser's own test fixtures) need no login at all.
 ## Usage
 
 ```bash
-agency-mbs ingest factorA1          # download + parse + store the current month
+agency-mbs ingest factorA1          # Ginnie I pool factors
+agency-mbs ingest factorA2          # Ginnie II pool factors
+agency-mbs ingest factorAplat       # Platinum pool factors
+agency-mbs ingest remic1            # REMIC/CMO tranche factors
+agency-mbs ingest remic2            # REMIC/CMO tranche factors (2nd feed)
 agency-mbs lookup US38384CNA35
 agency-mbs lookup 38384CNA3
 ```
@@ -154,9 +175,8 @@ ruff check src/ tests/
 
 ## Roadmap
 
-- [ ] Parsers for Ginnie II, Platinum, Additional, and REMIC/CMO tranche
-      factor files (each needs its own layout PDF read, same pattern as
-      `factorA1`).
+- [ ] Parser for `factorAAdd` (Additional) — needs its own layout PDF
+      checked before assuming it matches the other pool-level files.
 - [ ] Monthly scheduled ingestion (cron/systemd timer).
 - [ ] Freddie Mac source.
 - [ ] REST API / Streamlit dashboard on top of the local database.

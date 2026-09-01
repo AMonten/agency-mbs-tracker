@@ -38,3 +38,37 @@
   parse -> store together. Verified end-to-end against the live API:
   106,393 records stored (103,725 with a factor, 2,668 legitimately
   blank).
+
+## 2026-09-01 (continued) — Ginnie II, Platinum, and REMIC/CMO
+
+- Confirmed `factorA2` (Ginnie II) and `factorAplat` (Platinum) share the
+  exact same 171-char column layout as `factorA1` for every field this
+  project uses — one parser (renamed `parse_factor_a1_line` ->
+  `parse_pool_factor_line`) now covers all three, verified against each
+  one's own real public sample file.
+- Added `remic1`/`remic2` (REMIC/CMO tranche factors) support: a genuinely
+  different 117-char tranche-level layout (`parse_remic_tranche_line` /
+  `parse_monthly_remic_file`), confirmed against `remic1_layout.pdf` /
+  `remic2_layout.pdf` ("MTF FILE LAYOUT") and their real sample files.
+- **Found and fixed a real correctness bug while ingesting the actual
+  production REMIC files**: Ginnie Mae uses shared placeholder CUSIP
+  values (e.g. `"C99999999"`) for tranches that aren't individually
+  CUSIP-eligible — 185 distinct real tranches in the real `remic1` file
+  all carried that one CUSIP. Storage was keyed on `(cusip, factor_date)`,
+  so all 185 silently collapsed into a single row. Fixed by re-keying
+  `pool_factors` on `(pool_id, factor_date)` instead — `pool_id` (pool
+  number, or `<series>-<tranche_name>` for REMIC) is what Ginnie Mae
+  actually assigns uniquely; `cusip` stays indexed for lookup but isn't
+  the storage key. `agency-mbs lookup` on a shared CUSIP now lists every
+  tranche that shares it (and says so) instead of showing just one.
+- Added `tests/test_store.py` (previously untested) with a regression test
+  for the shared-CUSIP case, and expanded `tests/test_parse.py` for
+  Ginnie II/Platinum/REMIC1/REMIC2 — all against real fixture files, not
+  synthetic data. 33/33 tests passing, `ruff`+`mypy` clean.
+- Verified all 5 supported prefixes end-to-end against the live,
+  authenticated API for the real July 2026 files: 106,393 Ginnie I
+  records, 308,073 Ginnie II, 6,979 Platinum, 37,969 REMIC1 tranches,
+  154,085 REMIC2 tranches. Cross-checked overlaps: Ginnie II and Platinum
+  share exactly 4,311 CUSIPs (Platinum pools cross-referenced as blank
+  stubs inside the Ginnie II file — Platinum's real data correctly wins
+  on ingest order), REMIC1/REMIC2 share only 3.

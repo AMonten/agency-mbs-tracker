@@ -14,11 +14,18 @@ from agency_mbs.fetch import (
     load_session_cookie,
 )
 from agency_mbs.isin import InvalidCUSIPError, InvalidISINError, isin_to_cusip, validate_cusip
-from agency_mbs.parse import parse_monthly_factor_file
+from agency_mbs.parse import parse_monthly_factor_file, parse_monthly_remic_file
 from agency_mbs.store import get_connection, get_factor_history, init_db, upsert_factor_records
 
-# Prefixes agency_mbs.parse actually knows how to read today.
-_SUPPORTED_PREFIXES = {"factorA1"}
+# Prefixes agency_mbs.parse actually knows how to read today, and which
+# parser handles each (pool-level factor files vs. REMIC tranche files).
+_PREFIX_PARSERS = {
+    "factorA1": parse_monthly_factor_file,
+    "factorA2": parse_monthly_factor_file,
+    "factorAplat": parse_monthly_factor_file,
+    "remic1": parse_monthly_remic_file,
+    "remic2": parse_monthly_remic_file,
+}
 
 
 def _resolve_cusip(identifier: str) -> str:
@@ -42,10 +49,16 @@ def cmd_lookup(args: argparse.Namespace) -> int:
         print(f"No hay historial cargado todavia para CUSIP {cusip}.")
         return 0
 
+    distinct_pools = {row["pool_id"] for row in rows}
     print(f"CUSIP {cusip} — {len(rows)} periodos:")
+    if len(distinct_pools) > 1:
+        print(
+            "  (nota: este CUSIP es compartido por varios pools/tranches distintos "
+            "— comun en clases REMIC sin CUSIP propio)"
+        )
     for row in rows:
         factor_str = f"{row['current_factor']:.8f}" if row["current_factor"] is not None else "N/D"
-        line = f"  {row['factor_date']}  factor={factor_str}"
+        line = f"  {row['factor_date']}  pool_id={row['pool_id']}  factor={factor_str}"
         if row["upb_current"] is not None:
             line += f"  upb={row['upb_current']:,.2f}"
         print(line)
@@ -64,10 +77,11 @@ def _extract_if_zipped(path: Path) -> Path:
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
-    if args.prefix not in _SUPPORTED_PREFIXES:
+    parse_file = _PREFIX_PARSERS.get(args.prefix)
+    if parse_file is None:
         print(
             f"error: no parser for prefix {args.prefix!r} yet "
-            f"(supported: {sorted(_SUPPORTED_PREFIXES)})",
+            f"(supported: {sorted(_PREFIX_PARSERS)})",
             file=sys.stderr,
         )
         return 1
@@ -88,7 +102,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     )
     data_path = _extract_if_zipped(raw_path)
 
-    records = parse_monthly_factor_file(data_path)
+    records = parse_file(data_path)
     conn = get_connection()
     init_db(conn)
     written = upsert_factor_records(conn, records)
@@ -109,7 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
     ingest = subparsers.add_parser(
         "ingest", help="Download + parse + store the current bulk file for a prefix"
     )
-    ingest.add_argument("prefix", help="e.g. factorA1 (Ginnie Mae I factors)")
+    ingest.add_argument(
+        "prefix",
+        help="factorA1 (Ginnie I), factorA2 (Ginnie II), factorAplat (Platinum), "
+        "remic1/remic2 (REMIC/CMO tranches)",
+    )
     ingest.set_defaults(func=cmd_ingest)
 
     return parser
