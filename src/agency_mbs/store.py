@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS pool_factors (
     current_factor  REAL,  -- NULL when the source file reported it blank (real, not missing data)
     prior_factor    REAL,
     wac             REAL,
+    rate_type       TEXT,  -- 'fixed' or 'floating'; NULL when not derivable (REMIC tranches)
     wam             INTEGER,
     upb_original    REAL,
     upb_current     REAL,
@@ -67,14 +68,14 @@ def upsert_factor_records(conn: sqlite3.Connection, records: Iterable[dict]) -> 
         """
         INSERT INTO pool_factors
             (pool_id, cusip, issuer, factor_date, current_factor, prior_factor,
-             wac, wam, upb_original, upb_current)
+             wac, rate_type, wam, upb_original, upb_current)
         VALUES
             (:pool_id, :cusip, :issuer, :factor_date, :current_factor, :prior_factor,
-             :wac, :wam, :upb_original, :upb_current)
+             :wac, :rate_type, :wam, :upb_original, :upb_current)
         ON CONFLICT (pool_id, factor_date) DO UPDATE SET
             cusip=excluded.cusip, issuer=excluded.issuer,
             current_factor=excluded.current_factor, prior_factor=excluded.prior_factor,
-            wac=excluded.wac, wam=excluded.wam,
+            wac=excluded.wac, rate_type=excluded.rate_type, wam=excluded.wam,
             upb_original=excluded.upb_original, upb_current=excluded.upb_current,
             loaded_at=datetime('now')
         """,

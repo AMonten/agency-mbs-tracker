@@ -112,10 +112,18 @@ cli.py     -> `agency-mbs ingest <prefix>` (fetch+parse+store) and
 ```
 
 Normalized schema (`pool_factors` table): `pool_id, cusip, issuer,
-factor_date, current_factor, prior_factor, wac, wam, upb_original,
-upb_current`. `current_factor`/`upb_current`/`wac` can be `NULL` — some
-real pool records (`pool_type == "SP"`) report those fields blank, and the
-parser preserves that rather than coercing to 0.
+factor_date, current_factor, prior_factor, wac, rate_type, wam,
+upb_original, upb_current`. `current_factor`/`upb_current`/`wac` can be
+`NULL` — some real pool records (`pool_type == "SP"`) report those fields
+blank, and the parser preserves that rather than coercing to 0.
+
+`rate_type` is `"fixed"` or `"floating"` for pool-level records (Ginnie
+I/II/Platinum) — derived from the "Original Interest Rate" field, which
+the agency's own layout notes document as populated for ARM pools only;
+confirmed against real data (blank for every fixed pool checked, populated
+for all 18,352 real ARM/reverse-mortgage pools in the July 2026 Ginnie II
+file). It's `NULL` for REMIC tranches — that file has no fixed/floating
+signal at all, so it's left unknown rather than guessed.
 
 **Storage is keyed on `pool_id`, not `cusip`.** Confirmed against real
 REMIC production data: Ginnie Mae uses shared placeholder CUSIP values

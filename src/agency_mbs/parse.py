@@ -28,6 +28,13 @@ Fields NOT available in these files (left as None, not guessed):
   loan-level weighted average maturity. Real WAM needs loan-level data,
   which is a different disclosure file (llmon).
 
+`rate_type` ("fixed" or "floating") is derived from the "Original Interest
+Rate" field (byte range 141-145), which the agency's own Platinum layout
+notes document as "Populated for ARM Pools only" — confirmed against real
+production data: blank for every "SF" (fixed) pool checked, populated for
+every real "RF" (reverse-mortgage ARM) pool checked (18,352 of them in the
+real August 2026 factorA2 file). Blank -> "fixed", populated -> "floating".
+
 Confirmed against the real full production factorA1_202607.txt (106,393
 pool records, downloaded via a real authenticated session — not just the
 small sample): ~2.5% of rows (2,668 of 106,393), all with `pool_type ==
@@ -51,6 +58,13 @@ factor + coupon rate + balances — numeric fields here have a literal
 decimal point in the text, unlike the pool files' implied decimals), and
 one footer line with aggregate totals (indicator "3"). Only data lines are
 parsed; header/footer are skipped.
+
+This file has no fixed/floating indicator at all (unlike the pool-level
+files' "Original Interest Rate" signal) — REMIC tranche records always get
+`rate_type: None` rather than a guessed value. A tranche name prefix like
+"F"/"S" often hints at floater/inverse-floater in practice, but that's a
+market convention, not something the agency's own layout documents, so
+it's not relied on here.
 """
 
 from __future__ import annotations
@@ -72,6 +86,7 @@ POOL_FACTOR_LAYOUT = [
     ("pool_type", 117, 118),
     ("pool_issue_date", 119, 124),
     ("pool_maturity_date", 125, 130),
+    ("original_interest_rate", 141, 145),
     ("cusip", 163, 171),
 ]
 POOL_FACTOR_RECORD_LENGTH = 171
@@ -141,6 +156,9 @@ def parse_pool_factor_line(line: str) -> dict | None:
     # Amounts are 9(13)v9(2): implied 2 decimal places.
     upb_original = original_aggregate_amount / 100 if original_aggregate_amount is not None else None
     upb_current = remaining_security_rpb / 100 if remaining_security_rpb is not None else None
+    # "Original Interest Rate" is only populated for ARM pools (see module
+    # docstring) — its presence, not its value, is the fixed/floating signal.
+    rate_type = "floating" if fields["original_interest_rate"] else "fixed"
 
     return {
         "cusip": fields["cusip"],
@@ -149,6 +167,7 @@ def parse_pool_factor_line(line: str) -> dict | None:
         "current_factor": current_factor,
         "prior_factor": None,
         "wac": wac,
+        "rate_type": rate_type,
         "wam": None,
         "upb_original": upb_original,
         "upb_current": upb_current,
@@ -191,6 +210,7 @@ def parse_remic_tranche_line(line: str) -> dict | None:
         "current_factor": _float_or_none(fields["tranche_factor"]),
         "prior_factor": None,
         "wac": _float_or_none(fields["coupon_rate"]),
+        "rate_type": None,  # not derivable from this file, see module docstring
         "wam": None,
         "upb_original": _float_or_none(fields["original_balance"]),
         "upb_current": _float_or_none(fields["current_balance"]),

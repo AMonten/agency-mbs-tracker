@@ -38,8 +38,26 @@ def test_parse_pool_factor_line_real_row():
     assert record["issuer"] == "GNMA"
     assert 0 < record["current_factor"] <= 1
     assert record["wac"] > 0
+    assert record["rate_type"] == "fixed"  # Ginnie I has no ARM-specific fields at all
     assert record["upb_original"] > 0
     assert record["upb_current"] > 0
+
+
+def test_parse_pool_factor_line_arm_pool_is_floating():
+    # Real row from the production factorA2_202607.txt file, a "RF"
+    # (reverse-mortgage ARM) pool. "Original Interest Rate" is populated
+    # (04547 -> field non-blank) — that's the documented ARM-only signal.
+    line = (
+        "AA1681H9281 GINNIE MAE - REVERSE MORTGAGE FUNDING                       "
+        "00000196353670000000000516469300026303004700RF100112092062"
+        "    000000045470470000000000000036177X2N7"
+    )
+    assert len(line) == 171
+    record = parse_pool_factor_line(line)
+    assert record is not None
+    assert record["cusip"] == "36177X2N7"
+    assert record["rate_type"] == "floating"
+    assert record["wac"] == pytest.approx(4.7)
 
 
 def test_parse_pool_factor_line_blank_factor_is_none_not_zero():

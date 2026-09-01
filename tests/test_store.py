@@ -22,6 +22,7 @@ def _record(**overrides):
         "current_factor": 0.9,
         "prior_factor": None,
         "wac": 3.5,
+        "rate_type": "fixed",
         "wam": None,
         "upb_original": 1000.0,
         "upb_current": 900.0,
@@ -37,6 +38,14 @@ def test_upsert_and_read_back(conn):
     assert len(rows) == 1
     assert rows[0]["pool_id"] == "AA1366"
     assert rows[0]["current_factor"] == 0.9
+    assert rows[0]["wac"] == 3.5
+    assert rows[0]["rate_type"] == "fixed"
+
+
+def test_rate_type_null_for_remic_tranches(conn):
+    upsert_factor_records(conn, [_record(rate_type=None)])
+    rows = get_factor_history(conn, "36177XQT8")
+    assert rows[0]["rate_type"] is None
 
 
 def test_upsert_same_pool_and_period_overwrites(conn):

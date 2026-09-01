@@ -56,9 +56,13 @@ def cmd_lookup(args: argparse.Namespace) -> int:
             "  (nota: este CUSIP es compartido por varios pools/tranches distintos "
             "— comun en clases REMIC sin CUSIP propio)"
         )
+    rate_type_label = {"fixed": "fija", "floating": "flotante"}
     for row in rows:
         factor_str = f"{row['current_factor']:.8f}" if row["current_factor"] is not None else "N/D"
         line = f"  {row['factor_date']}  pool_id={row['pool_id']}  factor={factor_str}"
+        if row["wac"] is not None:
+            tipo = rate_type_label.get(row["rate_type"], "tipo desconocido")
+            line += f"  tasa={row['wac']:.3f}% ({tipo})"
         if row["upb_current"] is not None:
             line += f"  upb={row['upb_current']:,.2f}"
         print(line)

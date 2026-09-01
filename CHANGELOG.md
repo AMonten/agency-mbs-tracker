@@ -72,3 +72,20 @@
   share exactly 4,311 CUSIPs (Platinum pools cross-referenced as blank
   stubs inside the Ginnie II file — Platinum's real data correctly wins
   on ingest order), REMIC1/REMIC2 share only 3.
+
+## 2026-09-01 (continued) — fixed/floating rate indicator
+
+- Added `rate_type` (`"fixed"`/`"floating"`) to pool-level records
+  (Ginnie I/II/Platinum), derived from the "Original Interest Rate" field
+  — the agency's own Platinum layout notes document it as "Populated for
+  ARM Pools only". Confirmed against real data: blank for every `"SF"`
+  fixed pool checked, populated for all 18,352 real `"RF"`
+  (reverse-mortgage ARM) pools in the July 2026 Ginnie II file (289,721
+  fixed vs 18,352 floating out of 308,073 total).
+  REMIC tranches get `rate_type: None` — that file has no fixed/floating
+  signal at all, so it's left unknown rather than guessed from tranche
+  naming conventions.
+- `pool_factors` gained a `rate_type` column; `agency-mbs lookup` now
+  prints the interest rate and fixed/floating label per period (e.g.
+  `tasa=4.700% (flotante)`), and its existing multi-period history already
+  covers the "historico" ask.
