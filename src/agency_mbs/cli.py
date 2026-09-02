@@ -6,6 +6,7 @@ import argparse
 import sys
 import zipfile
 from collections.abc import Callable
+from datetime import date
 from functools import partial
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from agency_mbs.fetch_freddie import (
     download_document,
     fetch_monthly_years,
     latest_factor_document,
+    list_factor_documents,
     load_freddie_session,
 )
 from agency_mbs.isin import InvalidCUSIPError, InvalidISINError, isin_to_cusip, validate_cusip
@@ -77,9 +79,9 @@ def cmd_lookup(args: argparse.Namespace) -> int:
     for row in rows:
         factor_str = f"{row['current_factor']:.8f}" if row["current_factor"] is not None else "N/D"
         line = f"  {row['factor_date']}  pool_id={row['pool_id']}  factor={factor_str}"
-        if row["wac"] is not None:
+        if row["coupon_rate"] is not None:
             tipo = rate_type_label.get(row["rate_type"], "tipo desconocido")
-            line += f"  tasa={row['wac']:.3f}% ({tipo})"
+            line += f"  tasa={row['coupon_rate']:.3f}% ({tipo})"
         if row["upb_current"] is not None:
             line += f"  upb={row['upb_current']:,.2f}"
         print(line)
@@ -117,6 +119,50 @@ def _ingest_freddie() -> int:
     data_path = _extract_if_zipped(raw_path)
     records = parse_monthly_freddie_file(data_path)
     return _store_records(records)
+
+
+def _months_ago(months: int, today: date | None = None) -> date:
+    """First-of-month date `months` months before `today` (default: today)."""
+    today = today or date.today()
+    total = today.year * 12 + (today.month - 1) - months
+    year, month = divmod(total, 12)
+    return date(year, month + 1, 1)
+
+
+def cmd_backfill_freddie(args: argparse.Namespace) -> int:
+    cookie, csrf_token = load_freddie_session()
+    since = _months_ago(args.months)
+    documents = list_factor_documents(cookie, csrf_token, since=since)
+    if not documents:
+        print(f"error: no hay documentos 'Factors for pools' desde {since.isoformat()}", file=sys.stderr)
+        return 1
+
+    print(f"{len(documents)} periodos a bajar desde {since.isoformat()}.")
+    total_records = 0
+    for document in documents:
+        print(f"Descargando {document['name']} ({document['effectiveDate']})...")
+        raw_path = download_document(
+            cookie, csrf_token, document["id"], document["name"], dest_dir=RAW_DATA_DIR
+        )
+        data_path = _extract_if_zipped(raw_path)
+        records = parse_monthly_freddie_file(data_path)
+        _store_records(records)
+        total_records += len(records)
+        if data_path != raw_path:
+            data_path.unlink()  # keep the (much smaller) zip, drop the extracted .txt
+
+    print(f"Backfill completo: {len(documents)} periodos, {total_records} registros en total.")
+    return 0
+
+
+def cmd_backfill(args: argparse.Namespace) -> int:
+    if args.prefix != "freddie":
+        print(
+            f"error: backfill no soportado todavia para {args.prefix!r} (solo 'freddie')",
+            file=sys.stderr,
+        )
+        return 1
+    return cmd_backfill_freddie(args)
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -169,6 +215,15 @@ def build_parser() -> argparse.ArgumentParser:
         "freddie (Freddie Mac, latest monthly Security Core File)",
     )
     ingest.set_defaults(func=cmd_ingest)
+
+    backfill = subparsers.add_parser(
+        "backfill", help="Download + parse + store multiple historical periods for a source"
+    )
+    backfill.add_argument("prefix", help="Currently only 'freddie' supports backfill")
+    backfill.add_argument(
+        "--months", type=int, default=12, help="How many months back to fetch (default: 12)"
+    )
+    backfill.set_defaults(func=cmd_backfill)
 
     return parser
 

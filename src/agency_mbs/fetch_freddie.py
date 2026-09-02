@@ -30,6 +30,9 @@ browser session (not guessed):
   ingest always has to call `list` first. Confirmed via curl that this
   requires an authenticated session: without one it's a 403.
 
+`list_factor_documents` combines `listyears` + `list` into the fd-only,
+date-filterable catalog `agency-mbs backfill freddie` walks over.
+
 All three require a real Freddie Mac disclosure-portal login session (an
 `x-csrf-token` header plus a `Cookie` header carrying `DISC_WEB_SSN_ID` and
 friends) — see load_freddie_session(). They also require a same-origin
@@ -41,6 +44,7 @@ toggling each header individually via curl.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import requests
@@ -130,6 +134,33 @@ def latest_factor_document(cookie: str, csrf_token: str, year: int) -> dict:
     if not factor_docs:
         raise RuntimeError(f"No '{MONTHLY_FACTOR_HEADING_KEY}' fd* documents found for {year}")
     return max(factor_docs, key=lambda d: d["effectiveDate"])
+
+
+def list_factor_documents(cookie: str, csrf_token: str, *, since: date | None = None) -> list[dict]:
+    """All 'Factors for pools' (fd*) documents, oldest to newest.
+
+    With `since`, only queries the years that could contain a matching
+    date (from `since.year` through the current year) instead of every
+    year `fetch_monthly_years` returns, and drops documents whose
+    `effectiveDate` falls before it.
+    """
+    available_years = fetch_monthly_years(cookie, csrf_token)
+    years = available_years if since is None else [y for y in available_years if y >= since.year]
+
+    documents = []
+    for year in years:
+        for entry in fetch_monthly_documents(cookie, csrf_token, year):
+            if entry["headingKey"] != MONTHLY_FACTOR_HEADING_KEY:
+                continue
+            doc = entry["document"]
+            if not doc["name"].startswith("fd"):
+                continue
+            if since is not None and date.fromisoformat(doc["effectiveDate"]) < since:
+                continue
+            documents.append(doc)
+
+    documents.sort(key=lambda d: d["effectiveDate"])
+    return documents
 
 
 def download_document(

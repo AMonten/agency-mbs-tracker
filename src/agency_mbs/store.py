@@ -15,6 +15,17 @@ identity; cusip is a secondary business identifier, indexed for lookup but
 not the storage key. See agency_mbs.store's get_factor_history: a cusip
 lookup can legitimately return multiple pool_id rows for the same period
 when the cusip is one of these placeholders — that's correct, not a bug.
+
+`coupon_rate` is the security/tranche's own investor-facing interest rate
+(what the source files call "Pool Interest Rate", "Net Interest Rate", or
+"Coupon Rate" depending on the file) — NOT the underlying collateral's
+Weighted Average Coupon (WAC). WAC = the average rate the mortgages in the
+pool pay; coupon_rate = WAC minus servicing/guaranty fees, i.e. what's
+actually passed through to the security/tranche. The two drift apart over
+time as the pool's composition changes through amortization/prepayment,
+even when the security's own coupon stays fixed. True collateral WAC isn't
+in any file this project parses yet — it lives in the agencies' loan-level
+disclosure files, not the pool/security-level factor files.
 """
 
 from __future__ import annotations
@@ -33,7 +44,7 @@ CREATE TABLE IF NOT EXISTS pool_factors (
     factor_date     TEXT    NOT NULL,  -- YYYY-MM-01
     current_factor  REAL,  -- NULL when the source file reported it blank (real, not missing data)
     prior_factor    REAL,
-    wac             REAL,
+    coupon_rate     REAL,  -- the security/tranche's own rate, NOT collateral WAC (see module docstring)
     rate_type       TEXT,  -- 'fixed' or 'floating'; NULL when not derivable (REMIC tranches)
     wam             INTEGER,
     upb_original    REAL,
@@ -68,14 +79,14 @@ def upsert_factor_records(conn: sqlite3.Connection, records: Iterable[dict]) -> 
         """
         INSERT INTO pool_factors
             (pool_id, cusip, issuer, factor_date, current_factor, prior_factor,
-             wac, rate_type, wam, upb_original, upb_current)
+             coupon_rate, rate_type, wam, upb_original, upb_current)
         VALUES
             (:pool_id, :cusip, :issuer, :factor_date, :current_factor, :prior_factor,
-             :wac, :rate_type, :wam, :upb_original, :upb_current)
+             :coupon_rate, :rate_type, :wam, :upb_original, :upb_current)
         ON CONFLICT (pool_id, factor_date) DO UPDATE SET
             cusip=excluded.cusip, issuer=excluded.issuer,
             current_factor=excluded.current_factor, prior_factor=excluded.prior_factor,
-            wac=excluded.wac, rate_type=excluded.rate_type, wam=excluded.wam,
+            coupon_rate=excluded.coupon_rate, rate_type=excluded.rate_type, wam=excluded.wam,
             upb_original=excluded.upb_original, upb_current=excluded.upb_current,
             loaded_at=datetime('now')
         """,

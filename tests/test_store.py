@@ -21,7 +21,7 @@ def _record(**overrides):
         "factor_date": "2026-07-01",
         "current_factor": 0.9,
         "prior_factor": None,
-        "wac": 3.5,
+        "coupon_rate": 3.5,
         "rate_type": "fixed",
         "wam": None,
         "upb_original": 1000.0,
@@ -38,7 +38,7 @@ def test_upsert_and_read_back(conn):
     assert len(rows) == 1
     assert rows[0]["pool_id"] == "AA1366"
     assert rows[0]["current_factor"] == 0.9
-    assert rows[0]["wac"] == 3.5
+    assert rows[0]["coupon_rate"] == 3.5
     assert rows[0]["rate_type"] == "fixed"
 
 

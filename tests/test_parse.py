@@ -43,7 +43,7 @@ def test_parse_pool_factor_line_real_row():
     assert record["pool_id"] == "AA1366"
     assert record["issuer"] == "GNMA"
     assert 0 < record["current_factor"] <= 1
-    assert record["wac"] > 0
+    assert record["coupon_rate"] > 0
     assert record["rate_type"] == "fixed"  # Ginnie I has no ARM-specific fields at all
     assert record["upb_original"] > 0
     assert record["upb_current"] > 0
@@ -63,7 +63,7 @@ def test_parse_pool_factor_line_arm_pool_is_floating():
     assert record is not None
     assert record["cusip"] == "36177X2N7"
     assert record["rate_type"] == "floating"
-    assert record["wac"] == pytest.approx(4.7)
+    assert record["coupon_rate"] == pytest.approx(4.7)
 
 
 def test_parse_pool_factor_line_blank_factor_is_none_not_zero():
@@ -81,7 +81,7 @@ def test_parse_pool_factor_line_blank_factor_is_none_not_zero():
     assert record["current_factor"] is None
     assert record["upb_current"] is None
     assert record["upb_original"] == 300277239.00
-    assert record["wac"] == 7.5
+    assert record["coupon_rate"] == 7.5
 
 
 def test_parse_pool_factor_line_skips_non_data_lines():
@@ -161,7 +161,7 @@ def test_parse_remic_tranche_line_real_row():
     assert record["pool_id"] == "GNMA-1994-001-PK"
     assert record["issuer"] == "GNMA"
     assert record["current_factor"] == pytest.approx(0.21552923)
-    assert record["wac"] == pytest.approx(7.9)
+    assert record["coupon_rate"] == pytest.approx(7.9)
     assert record["upb_original"] == 26635000.00
     assert record["upb_current"] == pytest.approx(5740621.14)
 
@@ -233,7 +233,7 @@ def test_parse_freddie_factor_line_real_arm_row():
     assert record["issuer"] == "FRE"
     assert record["factor_date"] == "2026-08-01"
     assert record["current_factor"] == pytest.approx(0.00017308)
-    assert record["wac"] == pytest.approx(4.500)
+    assert record["coupon_rate"] == pytest.approx(4.500)
     assert record["rate_type"] == "floating"
     assert record["wam"] == 38
     assert record["upb_original"] == pytest.approx(341897869.00)
@@ -247,7 +247,7 @@ def test_parse_freddie_factor_line_real_fixed_paid_off_row():
     assert record["rate_type"] == "fixed"
     assert record["current_factor"] == 0.0
     assert record["upb_current"] == 0.0
-    assert record["wac"] == 0.0
+    assert record["coupon_rate"] == 0.0
     assert record["wam"] is None  # blank in this row, not guessed as 0
 
 

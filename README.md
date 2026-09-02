@@ -127,10 +127,24 @@ cli.py           -> `agency-mbs ingest <prefix>` (fetch+parse+store) and
 ```
 
 Normalized schema (`pool_factors` table): `pool_id, cusip, issuer,
-factor_date, current_factor, prior_factor, wac, rate_type, wam,
-upb_original, upb_current`. `current_factor`/`upb_current`/`wac` can be
-`NULL` — some real pool records (`pool_type == "SP"`) report those fields
-blank, and the parser preserves that rather than coercing to 0.
+factor_date, current_factor, prior_factor, coupon_rate, rate_type, wam,
+upb_original, upb_current`. `current_factor`/`upb_current`/`coupon_rate`
+can be `NULL` — some real pool records (`pool_type == "SP"`) report those
+fields blank, and the parser preserves that rather than coercing to 0.
+
+**`coupon_rate` is the security/tranche's own investor-facing interest
+rate — NOT the underlying collateral's Weighted Average Coupon (WAC).**
+These are genuinely different numbers: WAC is what the pooled mortgages
+pay; `coupon_rate` is WAC minus servicing/guaranty fees, i.e. what's
+actually passed through to the security. They drift apart over time as
+the pool's composition changes through amortization/prepayment, even when
+the security's own coupon stays fixed — this project's earlier field name
+(`wac`) was wrong and got renamed after review. True collateral WAC isn't
+in any file parsed here — it lives in the agencies' loan-level disclosure
+files, a different (unparsed) product. Each row's `coupon_rate` is
+correctly scoped already: pool-level for Ginnie/Freddie pool records, and
+the tranche's own rate for REMIC — a CMO tranche's rate is independent of
+its collateral's WAC and can be fixed, floating, inverse, or IO.
 
 `rate_type` is `"fixed"` or `"floating"` for pool-level records (Ginnie
 I/II/Platinum) — derived from the "Original Interest Rate" field, which
@@ -139,6 +153,11 @@ confirmed against real data (blank for every fixed pool checked, populated
 for all 18,352 real ARM/reverse-mortgage pools in the July 2026 Ginnie II
 file). It's `NULL` for REMIC tranches — that file has no fixed/floating
 signal at all, so it's left unknown rather than guessed.
+
+Because history is one row per `(pool_id, factor_date)`, `coupon_rate`'s
+own month-to-month history (real for floating-rate securities, whose rate
+resets periodically) comes for free from ingesting/backfilling multiple
+periods — no separate tracking needed.
 
 **Storage is keyed on `pool_id`, not `cusip`.** Confirmed against real
 REMIC production data: Ginnie Mae uses shared placeholder CUSIP values
@@ -206,9 +225,18 @@ agency-mbs ingest factorAAdd        # Additional (Ginnie II, MIP-aware) pool fac
 agency-mbs ingest remic1            # REMIC/CMO tranche factors
 agency-mbs ingest remic2            # REMIC/CMO tranche factors (2nd feed)
 agency-mbs ingest freddie           # Freddie Mac pool factors (latest monthly file)
+agency-mbs backfill freddie                # last 12 months (default)
+agency-mbs backfill freddie --months 24    # last 24 months
 agency-mbs lookup US38384CNA35
 agency-mbs lookup 38384CNA3
 ```
+
+`backfill` currently only supports `freddie` — Freddie Mac's
+`listyears`/`list` endpoints expose real history (back to 2018), unlike
+Ginnie Mae's catalog, which only ever shows the current month. Each
+period downloads a full ~30MB (compressed) monthly file and stores
+~450-460k rows; the extracted `.txt` is deleted after parsing to save
+disk, but the (much smaller) `.zip` is kept in `data/raw/`.
 
 ## Testing
 
@@ -222,7 +250,7 @@ ruff check src/ tests/
 - [ ] Monthly scheduled ingestion (cron/systemd timer) — including Freddie
       Mac, whose session cookie will need periodic refreshing since it's a
       browser login, not an API key.
-- [ ] Historical backfill — Freddie Mac's `listyears` endpoint already
-      confirms data back to 2018 (unlike Ginnie Mae, which only exposes
-      the current month); not pulled yet.
+- [ ] Ginnie Mae historical backfill — its catalog only exposes the
+      current month; the "FRR"/"SRF HISTORY FILES" catalog entries look
+      promising but haven't been explored yet.
 - [ ] REST API / Streamlit dashboard on top of the local database.

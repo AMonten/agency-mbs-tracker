@@ -88,11 +88,12 @@ up by name instead of hardcoded byte position.
 Only a handful of the 98 columns are used: Prefix + Security Identifier
 (-> pool_id), CUSIP, Security Factor Date (MMCCYY -> factor_date), Security
 Factor (-> current_factor), Issuance/Current Investor Security UPB (->
-upb_original/upb_current), WA Net Interest Rate (-> wac: the rate net of
-servicing/guarantee fees, i.e. what's actually passed through to the
-investor — the closest Freddie equivalent of Ginnie's "Pool Interest
-Rate"), and WA Current Remaining Months to Maturity (-> wam — Freddie
-actually discloses this; Ginnie Mae's pool-level files don't).
+upb_original/upb_current), WA Net Interest Rate (-> coupon_rate: the rate
+net of servicing/guarantee fees, i.e. what's actually passed through to
+the investor — this is NOT collateral WAC, see agency_mbs.store's module
+docstring for that distinction), and WA Current Remaining Months to
+Maturity (-> wam — Freddie actually discloses this; Ginnie Mae's
+pool-level files don't).
 
 `rate_type` is derived from "WA Mortgage Margin", which the Disclosure
 Guide documents as ARM-only with `77.777` as an explicit "Not Applicable"
@@ -202,7 +203,8 @@ def parse_pool_factor_line(
     # RPB Factor is 9(1)v9(8): 9 digits, implied decimal after the 1st digit.
     current_factor = rpb_factor / 1e8 if rpb_factor is not None else None
     # Pool Interest Rate is 9(2)v9(3): 5 digits, implied decimal after the 2nd.
-    wac = pool_interest_rate / 1000 if pool_interest_rate is not None else None
+    # This is the security's own pass-through rate, NOT collateral WAC.
+    coupon_rate = pool_interest_rate / 1000 if pool_interest_rate is not None else None
     # Amounts are 9(13)v9(2): implied 2 decimal places.
     upb_original = original_aggregate_amount / 100 if original_aggregate_amount is not None else None
     upb_current = remaining_security_rpb / 100 if remaining_security_rpb is not None else None
@@ -216,7 +218,7 @@ def parse_pool_factor_line(
         "issuer": "GNMA",
         "current_factor": current_factor,
         "prior_factor": None,
-        "wac": wac,
+        "coupon_rate": coupon_rate,
         "rate_type": rate_type,
         "wam": None,
         "upb_original": upb_original,
@@ -262,7 +264,7 @@ def parse_remic_tranche_line(line: str) -> dict | None:
         "issuer": "GNMA",
         "current_factor": _float_or_none(fields["tranche_factor"]),
         "prior_factor": None,
-        "wac": _float_or_none(fields["coupon_rate"]),
+        "coupon_rate": _float_or_none(fields["coupon_rate"]),  # the tranche's own rate, not collateral WAC
         "rate_type": None,  # not derivable from this file, see module docstring
         "wam": None,
         "upb_original": _float_or_none(fields["original_balance"]),
@@ -319,7 +321,7 @@ def parse_freddie_factor_line(fields: dict[str, str]) -> dict:
         "factor_date": _freddie_date_to_iso(fields["Security Factor Date"]),
         "current_factor": _float_or_none(fields["Security Factor"]),
         "prior_factor": None,
-        "wac": _float_or_none(fields["WA Net Interest Rate"]),
+        "coupon_rate": _float_or_none(fields["WA Net Interest Rate"]),
         "rate_type": rate_type,
         "wam": _int_or_none(fields["WA Current Remaining Months to Maturity"]),
         "upb_original": _float_or_none(fields["Issuance Investor Security UPB"]),

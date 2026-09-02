@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import Mock, patch
 
 import pytest
@@ -11,6 +12,7 @@ from agency_mbs.fetch_freddie import (
     fetch_monthly_documents,
     fetch_monthly_years,
     latest_factor_document,
+    list_factor_documents,
     load_freddie_session,
 )
 
@@ -86,6 +88,60 @@ def test_latest_factor_document_raises_when_none_found(mock_fetch_documents):
     mock_fetch_documents.return_value = []
     with pytest.raises(RuntimeError, match="No 'L1L2_MONTHLY_ONGOING_POOL_LEVEL' fd\\* documents"):
         latest_factor_document(FAKE_COOKIE, FAKE_CSRF, 2026)
+
+
+@patch("agency_mbs.fetch_freddie.fetch_monthly_documents")
+@patch("agency_mbs.fetch_freddie.fetch_monthly_years")
+def test_list_factor_documents_filters_heading_key_and_prefix(mock_years, mock_documents):
+    mock_years.return_value = [2026]
+    mock_documents.return_value = [
+        {
+            "headingKey": "L1L2_MONTHLY_ONGOING_POOL_LEVEL",
+            "document": {"id": "1", "name": "fd260706.zip", "effectiveDate": "2026-07-06"},
+        },
+        {
+            "headingKey": "L1L2_MONTHLY_ONGOING_POOL_LEVEL",
+            "document": {"id": "2", "name": "fq260706.zip", "effectiveDate": "2026-07-06"},
+        },
+        {
+            "headingKey": "L1_MONTHLY_ONGOING_LOAN_LEVEL",
+            "document": {"id": "3", "name": "fd260706_other.zip", "effectiveDate": "2026-07-06"},
+        },
+    ]
+    result = list_factor_documents(FAKE_COOKIE, FAKE_CSRF)
+    assert result == [{"id": "1", "name": "fd260706.zip", "effectiveDate": "2026-07-06"}]
+
+
+@patch("agency_mbs.fetch_freddie.fetch_monthly_documents")
+@patch("agency_mbs.fetch_freddie.fetch_monthly_years")
+def test_list_factor_documents_only_queries_years_since_onward(mock_years, mock_documents):
+    mock_years.return_value = [2020, 2024, 2025, 2026]
+    mock_documents.return_value = []
+    list_factor_documents(FAKE_COOKIE, FAKE_CSRF, since=date(2025, 1, 1))
+    queried_years = {call.args[2] for call in mock_documents.call_args_list}
+    assert queried_years == {2025, 2026}
+
+
+@patch("agency_mbs.fetch_freddie.fetch_monthly_documents")
+@patch("agency_mbs.fetch_freddie.fetch_monthly_years")
+def test_list_factor_documents_drops_entries_before_since_and_sorts(mock_years, mock_documents):
+    mock_years.return_value = [2026]
+    mock_documents.return_value = [
+        {
+            "headingKey": "L1L2_MONTHLY_ONGOING_POOL_LEVEL",
+            "document": {"id": "2", "name": "fd260806.zip", "effectiveDate": "2026-08-06"},
+        },
+        {
+            "headingKey": "L1L2_MONTHLY_ONGOING_POOL_LEVEL",
+            "document": {"id": "1", "name": "fd260706.zip", "effectiveDate": "2026-07-06"},
+        },
+        {
+            "headingKey": "L1L2_MONTHLY_ONGOING_POOL_LEVEL",
+            "document": {"id": "0", "name": "fd260112.zip", "effectiveDate": "2026-01-12"},
+        },
+    ]
+    result = list_factor_documents(FAKE_COOKIE, FAKE_CSRF, since=date(2026, 6, 1))
+    assert [d["name"] for d in result] == ["fd260706.zip", "fd260806.zip"]
 
 
 @patch("agency_mbs.fetch_freddie.requests.get")

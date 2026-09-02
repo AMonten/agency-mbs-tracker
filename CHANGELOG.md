@@ -153,3 +153,36 @@
   Ginnie Mae pool types). New `agency-mbs ingest freddie` command.
   49/49 tests passing (`fetch_freddie.py` at 100% coverage), `ruff`+`mypy`
   clean.
+
+## 2026-09-01 (continued) — Freddie Mac historical backfill + a naming fix
+
+- New `agency-mbs backfill freddie [--months N]` (default 12) walks
+  Freddie's `listyears`/`list` endpoints, collects every "Factors for
+  pools" document with `effectiveDate` in that window, and
+  downloads+parses+stores each one — `list_factor_documents()` in
+  `fetch_freddie.py` only queries the years that could actually contain a
+  match instead of every year Freddie has. Verified against the live API:
+  12 real periods (Sept 2025 - Aug 2026), 5,241,866 records total. The
+  extracted `.txt` is deleted after parsing (the files run ~150MB
+  uncompressed each); the much smaller `.zip` stays in `data/raw/`.
+- **Renamed `wac` -> `coupon_rate` everywhere** (schema column, parser
+  output, CLI display) after the operator pointed out a real domain error: what
+  this project was calling "WAC" is actually the security/tranche's own
+  investor-facing interest rate (Ginnie's "Pool Interest Rate", Freddie's
+  "WA Net Interest Rate", REMIC's "Coupon Rate") — not the underlying
+  collateral's true Weighted Average Coupon. WAC and coupon_rate are
+  related (`coupon_rate = WAC - servicing/guaranty fees`) but genuinely
+  different numbers that drift apart over time as the pool's loan
+  composition changes, even when the security's own rate stays fixed.
+  True collateral WAC isn't available in any file this project parses —
+  it lives in the agencies' loan-level disclosure files, not the
+  pool/security-level factor files used here. No new columns needed for
+  "tranche vs. collateral" separation: each stored row is already scoped
+  to one security or one REMIC tranche, so `coupon_rate` unambiguously
+  means that row's own rate.
+- Confirmed the rate-history ask ("store the interest rate history, at
+  least for floating ones") was already satisfied by the existing
+  one-row-per-`(pool_id, factor_date)` design — no schema change needed,
+  just data: backfilling multiple periods naturally captures each
+  period's `coupon_rate`, including real month-to-month resets for
+  floating-rate securities.
