@@ -234,3 +234,27 @@
   auto-installed since it needs `sudo` (interactive password, no
   `NOPASSWD` in this environment) — documented as a manual install step
   in the README instead.
+- Installed and enabled on the operator's machine (`agency-mbs-monthly-ingest.timer`
+  active/waiting, next trigger 2026-09-10 06:00 EST). Found along the way
+  that an AI coding assistant's `!`-prefix bridge doesn't allocate a TTY, so `sudo`
+  can't prompt through it (`sudo: a terminal is required to read the
+  password`) — the operator had to run the install commands from his own real
+  terminal instead. Documented in the README so this isn't rediscovered
+  next time.
+- New `agency-mbs notify <message>` + `agency_mbs.notify.send_telegram_message`:
+  the monthly script now sends a one-line ✅/❌ summary via Telegram at the
+  end of each run, reusing the exact same bot the operator's Windows-side
+  scripts already use for Refinitiv/BNY2.0 alerts (same bot, same
+  `chat_id` — see `C:\Users\operator\Scripts\README.md`'s
+  "Alertas de Telegram" section). That side reads the token from Windows
+  user environment variables (not visible from WSL); this side reads the
+  same two values from local gitignored files
+  (`data/telegram_bot_token.txt`, `data/telegram_chat_id.txt`) instead —
+  same secret-handling convention as the Ginnie/Freddie session cookies.
+  Silently no-ops if either file is missing or the request fails, matching
+  `Send-TelegramAlert.ps1`'s own "never let an alert break the real
+  automation" philosophy. This was necessary because a cloud-routine
+  ("/schedule" skill) approach to checking on the timer turned out to be
+  the wrong tool entirely — cloud agents have no access to a local
+  machine's `systemd`/`journalctl` at all, so a self-notifying script was
+  the only real solution to "let me know when this runs."

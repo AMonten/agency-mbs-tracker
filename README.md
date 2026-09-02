@@ -78,10 +78,12 @@ look it up by ISIN or CUSIP.
   2026), and 462,779 Freddie Mac records (August 2026). Freddie Mac also
   has a real 12-month backfill (5,241,866 records) via `agency-mbs
   backfill freddie`.
-- ✅ `scripts/monthly_ingest.sh` + `systemd/` — runs `ingest` for all 7
-  sources monthly, continuing past any single source's failure. Not
-  auto-installed (needs `sudo`) — see [Scheduled
-  ingestion](#scheduled-ingestion).
+- ✅ `scripts/monthly_ingest.sh` + `systemd/` — **installed and running**
+  on the operator's machine (`agency-mbs-monthly-ingest.timer` enabled, next
+  fire 2026-09-10), runs `ingest` for all 7 sources monthly, continuing
+  past any single source's failure, and sends a ✅/❌ Telegram summary via
+  `agency-mbs notify` (optional, reuses the same bot the Windows-side
+  scripts already use) — see [Scheduled ingestion](#scheduled-ingestion).
 
 ## Why this project exists
 
@@ -274,7 +276,10 @@ so a missed run (WSL/Windows host off at the scheduled time) fires once
 as soon as it's next up, instead of waiting a full month.
 
 Installing the timer needs `sudo` (interactive password, no `NOPASSWD` in
-this environment), so it's not run automatically — install it yourself:
+this environment), so it's not run automatically — install it yourself,
+**from a real terminal** (an AI coding assistant's `!`-prefix bridge does not
+allocate a TTY, so `sudo` can't prompt for a password through it —
+confirmed: `sudo: a terminal is required to read the password`):
 
 ```bash
 sudo cp systemd/agency-mbs-monthly-ingest.service systemd/agency-mbs-monthly-ingest.timer /etc/systemd/system/
@@ -285,6 +290,25 @@ sudo systemctl enable --now agency-mbs-monthly-ingest.timer
 systemctl list-timers agency-mbs-monthly-ingest.timer
 journalctl -u agency-mbs-monthly-ingest.service -n 50 --no-pager
 ```
+
+**Telegram notifications** — `scripts/monthly_ingest.sh` sends a one-line
+✅/❌ summary via `agency-mbs notify` at the end of each run, reusing the
+same bot the operator's Windows-side scripts already use for Refinitiv/BNY2.0
+alerts (see `C:\Users\operator\Scripts\README.md`'s "Alertas de
+Telegram" section) — same bot, same `chat_id`. That side reads the token
+from Windows user environment variables, which aren't visible from WSL,
+so this side reads the same two values from local, gitignored files
+instead:
+
+```bash
+echo -n "<bot token>" > data/telegram_bot_token.txt
+echo -n "<chat id>" > data/telegram_chat_id.txt
+```
+
+Both are optional — `send_telegram_message` (and `agency-mbs notify`)
+silently no-ops if either file is missing, matching
+`Send-TelegramAlert.ps1`'s own "never let an alert failure break the real
+automation" philosophy on the Windows side.
 
 ## Testing
 

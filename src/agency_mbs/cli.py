@@ -24,6 +24,7 @@ from agency_mbs.fetch_freddie import (
     load_freddie_session,
 )
 from agency_mbs.isin import InvalidCUSIPError, InvalidISINError, isin_to_cusip, validate_cusip
+from agency_mbs.notify import send_telegram_message
 from agency_mbs.parse import (
     ADDITIONAL_RECORD_LENGTH,
     POOL_FACTOR_RECORD_LENGTH,
@@ -197,6 +198,19 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return _store_records(records)
 
 
+def cmd_notify(args: argparse.Namespace) -> int:
+    """Best-effort Telegram notification — always exits 0, never fails a caller's pipeline."""
+    if send_telegram_message(args.message):
+        print("Notificacion enviada.")
+    else:
+        print(
+            "Notificacion no enviada (falta data/telegram_bot_token.txt o "
+            "data/telegram_chat_id.txt, o fallo el request) — no es un error fatal.",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agency-mbs")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -224,6 +238,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--months", type=int, default=12, help="How many months back to fetch (default: 12)"
     )
     backfill.set_defaults(func=cmd_backfill)
+
+    notify = subparsers.add_parser(
+        "notify", help="Send a Telegram notification (used by scripts/monthly_ingest.sh)"
+    )
+    notify.add_argument("message", help="Message text to send")
+    notify.set_defaults(func=cmd_notify)
 
     return parser
 

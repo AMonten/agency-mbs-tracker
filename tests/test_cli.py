@@ -1,7 +1,8 @@
 import argparse
 from datetime import date
+from unittest.mock import patch
 
-from agency_mbs.cli import _months_ago, cmd_backfill
+from agency_mbs.cli import _months_ago, cmd_backfill, cmd_notify
 
 
 def test_months_ago_same_year():
@@ -25,3 +26,22 @@ def test_cmd_backfill_rejects_unsupported_prefix(capsys):
     result = cmd_backfill(args)
     assert result == 1
     assert "backfill no soportado" in capsys.readouterr().err
+
+
+@patch("agency_mbs.cli.send_telegram_message")
+def test_cmd_notify_always_exits_zero_when_sent(mock_send, capsys):
+    mock_send.return_value = True
+    args = argparse.Namespace(message="hola")
+    result = cmd_notify(args)
+    assert result == 0
+    mock_send.assert_called_once_with("hola")
+    assert "enviada" in capsys.readouterr().out
+
+
+@patch("agency_mbs.cli.send_telegram_message")
+def test_cmd_notify_always_exits_zero_when_not_sent(mock_send, capsys):
+    mock_send.return_value = False
+    args = argparse.Namespace(message="hola")
+    result = cmd_notify(args)
+    assert result == 0
+    assert "no enviada" in capsys.readouterr().err

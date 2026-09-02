@@ -21,3 +21,5 @@ data/*.db
 data/session_cookie.txt
 data/freddie_cookie.txt
 data/freddie_csrf_token.txt
+data/telegram_bot_token.txt
+data/telegram_chat_id.txt
