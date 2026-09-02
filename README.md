@@ -238,6 +238,21 @@ period downloads a full ~30MB (compressed) monthly file and stores
 ~450-460k rows; the extracted `.txt` is deleted after parsing to save
 disk, but the (much smaller) `.zip` is kept in `data/raw/`.
 
+**Ginnie Mae has no bulk historical backfill** — confirmed, not just
+unexplored. Its bulk portal's own JS bundle has no history/archive/year
+API at all (only the current-month catalog this project already uses).
+The "FRR"/"SRF HISTORY FILES" catalog entries turned out to be
+current-month-only disclosures too (floater reset rates and REMIC
+series-level factors, despite the "HISTORY" in their titles) — not
+archives. A genuine per-CUSIP history product does exist (the "Tax and
+Factor Data Search" tool's "Pool RPB, Tax and Factor History Download
+File", pipe-delimited, one row per reporting period per pool), but it's
+capped at 20 CUSIPs/pools per query with ~12 months of history — a lookup
+tool, not a bulk archive, and it lives on Ginnie Mae's newer site with its
+own API not yet reverse-engineered. Ginnie Mae history will accumulate
+naturally instead, one row per `(pool_id, factor_date)`, as `ingest` runs
+forward each month.
+
 ## Testing
 
 ```bash
@@ -250,7 +265,8 @@ ruff check src/ tests/
 - [ ] Monthly scheduled ingestion (cron/systemd timer) — including Freddie
       Mac, whose session cookie will need periodic refreshing since it's a
       browser login, not an API key.
-- [ ] Ginnie Mae historical backfill — its catalog only exposes the
-      current month; the "FRR"/"SRF HISTORY FILES" catalog entries look
-      promising but haven't been explored yet.
+- [ ] (Optional, not planned) Ginnie Mae per-CUSIP history lookup via the
+      "Tax and Factor Data Search" tool — capped at 20 CUSIPs/query, needs
+      its own reverse-engineering; no bulk backfill exists for Ginnie Mae
+      (confirmed — see the [Usage](#usage) note above).
 - [ ] REST API / Streamlit dashboard on top of the local database.

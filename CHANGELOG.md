@@ -186,3 +186,33 @@
   just data: backfilling multiple periods naturally captures each
   period's `coupon_rate`, including real month-to-month resets for
   floating-rate securities.
+
+## 2026-09-01 (continued) — investigated Ginnie Mae historical backfill (no code change)
+
+- Confirmed, not just left unexplored, that Ginnie Mae has no bulk
+  historical backfill available. Checked both leads from the roadmap:
+  - The "FRR"/"SRF HISTORY FILES" catalog entries are NOT archives —
+    despite the name, "FRR" is the Floater Tranche Reset Rate File
+    (current-period REMIC floater resets) and "SRF" is the REMIC Series
+    Factor File (current-period series-level factor + WAC/WARM/WALA) —
+    both are just more current-month-only disclosures, per their own
+    layout PDFs.
+  - Re-grepped `bulk.ginniemae.gov`'s JS bundle for any
+    history/archive/year-related API strings: none exist. The only data
+    endpoints are the ones already used (`disclosure-data`,
+    `layouts-sample-files`, the `dlfile` download) — there is no
+    per-period listing endpoint like Freddie's `listyears`/`list`.
+  - A real per-CUSIP history product does exist — Ginnie Mae's "Tax and
+    Factor Data Search" tool produces a pipe-delimited "Pool RPB, Tax and
+    Factor History Download File" (CUSIP, Pool Factor, Current Interest
+    Rate, one row per Reporting Period). But it's capped at 20
+    CUSIPs/pools per query with ~12 months of history, and the tool has
+    moved off the old `TFDSearch.aspx` page onto Ginnie Mae's newer site
+    (same SPA family as `bulk.ginniemae.gov`), meaning its real API isn't
+    reverse-engineered yet. the operator's call: not worth pursuing right now
+    — it's a per-CUSIP lookup tool, not a bulk backfill, and would need
+    its own research effort for a capped, narrower payoff than Freddie's.
+  - Decision: no Ginnie Mae backfill for now. History accumulates
+    naturally, one row per `(pool_id, factor_date)`, as `ingest` runs
+    forward each month — same mechanism that already gives Freddie Mac
+    its history.
