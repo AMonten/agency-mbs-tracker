@@ -1,4 +1,4 @@
-"""Parsing of Ginnie Mae pool-level factor files and REMIC/CMO tranche files.
+"""Parsing of Ginnie Mae and Freddie Mac pool/tranche-factor files.
 
 Pool-level layout (`parse_pool_factor_line` / `parse_monthly_factor_file`)
 confirmed against the agency's own published specs, all downloaded from
@@ -75,6 +75,38 @@ files' "Original Interest Rate" signal) — REMIC tranche records always get
 "F"/"S" often hints at floater/inverse-floater in practice, but that's a
 market convention, not something the agency's own layout documents, so
 it's not relied on here.
+
+Freddie Mac layout (`parse_freddie_factor_line` / `parse_monthly_freddie_file`)
+confirmed against Freddie's own Disclosure Guide (v6.2,
+capitalmarkets.freddiemac.com/mbs/docs/disclosure_guide.pdf, "Security Core
+File" section) and a real authenticated download (fd260806.zip, 461,779
+pool records) — see agency_mbs.fetch_freddie for the source. Pipe-delimited
+text **with a header row** naming every column (98 of them) — much simpler
+than Ginnie Mae's fixed-width COBOL-style layout, since fields are looked
+up by name instead of hardcoded byte position.
+
+Only a handful of the 98 columns are used: Prefix + Security Identifier
+(-> pool_id), CUSIP, Security Factor Date (MMCCYY -> factor_date), Security
+Factor (-> current_factor), Issuance/Current Investor Security UPB (->
+upb_original/upb_current), WA Net Interest Rate (-> wac: the rate net of
+servicing/guarantee fees, i.e. what's actually passed through to the
+investor — the closest Freddie equivalent of Ginnie's "Pool Interest
+Rate"), and WA Current Remaining Months to Maturity (-> wam — Freddie
+actually discloses this; Ginnie Mae's pool-level files don't).
+
+`rate_type` is derived from "WA Mortgage Margin", which the Disclosure
+Guide documents as ARM-only with `77.777` as an explicit "Not Applicable"
+sentinel (used instead of a blank in some rows) — blank or `77.777` ->
+"fixed", any other value -> "floating". Confirmed against real rows: two
+real ARM securities (margin 2.468 and 2.250, each with a populated
+"Index" too) and two real fixed securities (margin and Index both blank)
+in the same production file.
+
+`issuer` is read directly from the file's own "Issuer" column rather than
+hardcoded to "FRE" — the field is documented as "FNM = Fannie Mae, FRE =
+Freddie Mac", so a Freddie-distributed file can in principle carry
+Fannie-issued rows (not observed yet, but worth preserving rather than
+overwriting).
 """
 
 from __future__ import annotations
@@ -255,4 +287,58 @@ def parse_monthly_remic_file(path: Path) -> list[dict]:
             if record is not None:
                 record["factor_date"] = factor_date
                 records.append(record)
+    return records
+
+
+# "Not Applicable" sentinel Freddie Mac uses in several ARM-only numeric
+# fields (e.g. WA Mortgage Margin) instead of leaving them blank.
+_FREDDIE_NOT_APPLICABLE = "77.777"
+
+
+def _freddie_date_to_iso(mmccyy: str) -> str | None:
+    """Convert a Freddie "MMCCYY" date (e.g. "082026") to "YYYY-MM-01"."""
+    if not mmccyy:
+        return None
+    month, year = mmccyy[:2], mmccyy[2:]
+    return f"{year}-{month}-01"
+
+
+def parse_freddie_factor_line(fields: dict[str, str]) -> dict:
+    """Normalize one row of Freddie Mac's pipe-delimited Security Core File.
+
+    `fields` is a dict already mapping the file's own header column names
+    to that row's raw string values (see parse_monthly_freddie_file).
+    """
+    margin = fields["WA Mortgage Margin"]
+    rate_type = "fixed" if margin in ("", _FREDDIE_NOT_APPLICABLE) else "floating"
+
+    return {
+        "cusip": fields["CUSIP"],
+        "pool_id": f"{fields['Prefix']}-{fields['Security Identifier']}",
+        "issuer": fields["Issuer"],
+        "factor_date": _freddie_date_to_iso(fields["Security Factor Date"]),
+        "current_factor": _float_or_none(fields["Security Factor"]),
+        "prior_factor": None,
+        "wac": _float_or_none(fields["WA Net Interest Rate"]),
+        "rate_type": rate_type,
+        "wam": _int_or_none(fields["WA Current Remaining Months to Maturity"]),
+        "upb_original": _float_or_none(fields["Issuance Investor Security UPB"]),
+        "upb_current": _float_or_none(fields["Current Investor Security UPB"]),
+    }
+
+
+def parse_monthly_freddie_file(path: Path) -> list[dict]:
+    """Parse one Freddie Mac "fd*.txt" Security Core File into factor records.
+
+    Uses the file's own header row to map columns by name — no hardcoded
+    positions, unlike the Ginnie Mae parsers.
+    """
+    path = Path(path)
+    records = []
+    with open(path, encoding="latin-1") as f:
+        header = f.readline().rstrip("\n").rstrip("\r").split("|")
+        for line in f:
+            values = line.rstrip("\n").rstrip("\r").split("|")
+            fields = dict(zip(header, values, strict=True))
+            records.append(parse_freddie_factor_line(fields))
     return records

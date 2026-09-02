@@ -5,7 +5,9 @@ import pytest
 from agency_mbs.parse import (
     ADDITIONAL_RECORD_LENGTH,
     POOL_FACTOR_RECORD_LENGTH,
+    parse_freddie_factor_line,
     parse_monthly_factor_file,
+    parse_monthly_freddie_file,
     parse_monthly_remic_file,
     parse_pool_factor_line,
     parse_remic_tranche_line,
@@ -18,6 +20,7 @@ FACTOR_A2 = FIXTURES / "factorA2_202607.txt"
 FACTOR_APLAT = FIXTURES / "factorAplat_202607.txt"
 FACTOR_AADD = FIXTURES / "factorAAdd_202607.txt"
 REMIC1 = FIXTURES / "remic1_202607.txt"
+FREDDIE_FD = FIXTURES / "freddie_fd_202608.txt"
 REMIC2 = FIXTURES / "remic2_202607.txt"
 
 
@@ -202,3 +205,52 @@ def test_parse_monthly_remic_file_remic2():
     # both prefixes.
     records = parse_monthly_remic_file(REMIC2)
     assert len(records) == 27
+
+
+def _freddie_row(cusip: str) -> dict:
+    records = parse_monthly_freddie_file(FREDDIE_FD)
+    return next(r for r in records if r["cusip"] == cusip)
+
+
+def test_parse_monthly_freddie_file_real_rows():
+    # Real rows pulled from the actual authenticated fd260806.txt download
+    # (461,779 records) — a small, representative slice, not synthetic data.
+    records = parse_monthly_freddie_file(FREDDIE_FD)
+    assert len(records) == 4
+    assert {r["cusip"] for r in records} == {
+        "3133TCE95",
+        "3128NEAA8",
+        "3128NFLV7",
+        "31336RR85",
+    }
+
+
+def test_parse_freddie_factor_line_real_arm_row():
+    # Real ARM security: "WA Mortgage Margin" populated (2.468, not the
+    # 77.777 "Not Applicable" sentinel) -> floating.
+    record = _freddie_row("3133TCE95")
+    assert record["pool_id"] == "0E-0E003A"
+    assert record["issuer"] == "FRE"
+    assert record["factor_date"] == "2026-08-01"
+    assert record["current_factor"] == pytest.approx(0.00017308)
+    assert record["wac"] == pytest.approx(4.500)
+    assert record["rate_type"] == "floating"
+    assert record["wam"] == 38
+    assert record["upb_original"] == pytest.approx(341897869.00)
+    assert record["upb_current"] == pytest.approx(59176.77)
+
+
+def test_parse_freddie_factor_line_real_fixed_paid_off_row():
+    # Real fixed-rate, fully paid-off security (Status "P"): factor and
+    # UPB are genuinely 0, not blank — margin/Index both blank -> fixed.
+    record = _freddie_row("3128NFLV7")
+    assert record["rate_type"] == "fixed"
+    assert record["current_factor"] == 0.0
+    assert record["upb_current"] == 0.0
+    assert record["wac"] == 0.0
+    assert record["wam"] is None  # blank in this row, not guessed as 0
+
+
+def test_parse_freddie_factor_line_missing_field_raises():
+    with pytest.raises(KeyError):
+        parse_freddie_factor_line({"CUSIP": "123456789"})

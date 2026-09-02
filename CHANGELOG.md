@@ -108,3 +108,48 @@
   count and blank-count exactly, confirming factorAAdd covers the same
   Ginnie II pool universe as a separate feed. 38/38 tests passing,
   `ruff`+`mypy` clean.
+
+## 2026-09-01 (continued) — Freddie Mac support
+
+- Confirmed the official Freddie Mac bulk source: not the third-party-look
+  `freddiemac.mbs-securities.com` we worried about earlier — it's directly
+  linked from Freddie's own capitalmarkets.freddiemac.com and carries
+  Freddie's own branding/analytics. Reverse-engineered its React bundle
+  and, with the operator capturing real authenticated requests from his own
+  browser session (`Copy as fetch` / cURL), found the real API:
+  `/api/report/freddie/listyears/<category_id>/<slug>` (which years have
+  data — Freddie's goes back to at least 2018, unlike Ginnie Mae's
+  current-month-only catalog), `/api/report/freddie/list/<category_id>/<year>`
+  (document catalog for that year, `{headingKey, document: {id, name,
+  effectiveDate}}`), and `/api/report/download/<document_id>/<file_name>`
+  (the actual file). All three need a logged-in session; confirmed via a
+  real 403 without one.
+- New `fetch_freddie.py` module (separate from the Ginnie-specific
+  `fetch.py`) implementing all three calls, plus
+  `load_freddie_session()` reading a `Cookie` header and `x-csrf-token`
+  from two local gitignored files (`data/freddie_cookie.txt`,
+  `data/freddie_csrf_token.txt`) — never committed, never echoed back in
+  any tool output after being saved.
+- Found and fixed a real gotcha the hard way: Akamai's edge WAF returns a
+  403 "Access Denied" (a different failure than the app-level session
+  check) unless every request carries a same-origin `referer` header —
+  independent of cookie validity or User-Agent, confirmed by toggling each
+  header individually via curl. `agency_mbs.requests` calls were failing
+  with this until the header was added.
+- `parse_monthly_freddie_file`/`parse_freddie_factor_line`: Freddie's
+  "Security Core File" (`fd<YYMMDD>.zip`) is pipe-delimited **with its own
+  header row** naming all 98 columns — parsed by column name, not
+  hardcoded byte positions, unlike every Ginnie Mae parser so far. `wac`
+  comes from "WA Net Interest Rate" (the investor's actual pass-through
+  rate); `wam` from "WA Current Remaining Months to Maturity" — a real WAM,
+  which none of the Ginnie Mae pool-level files provide at all. `rate_type`
+  is derived from "WA Mortgage Margin" (blank or its documented `77.777`
+  "Not Applicable" sentinel -> fixed; any other value -> floating),
+  confirmed against two real ARM rows and two real fixed rows in the same
+  production file.
+- Verified end-to-end against the live, authenticated API: the real
+  August 2026 file, 462,779 records, all with a factor (Freddie's file
+  reports paid-off securities as factor `0.0`, not blank, unlike some
+  Ginnie Mae pool types). New `agency-mbs ingest freddie` command.
+  49/49 tests passing (`fetch_freddie.py` at 100% coverage), `ruff`+`mypy`
+  clean.

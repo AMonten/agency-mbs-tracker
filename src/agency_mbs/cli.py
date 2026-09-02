@@ -15,11 +15,18 @@ from agency_mbs.fetch import (
     fetch_disclosure_catalog,
     load_session_cookie,
 )
+from agency_mbs.fetch_freddie import (
+    download_document,
+    fetch_monthly_years,
+    latest_factor_document,
+    load_freddie_session,
+)
 from agency_mbs.isin import InvalidCUSIPError, InvalidISINError, isin_to_cusip, validate_cusip
 from agency_mbs.parse import (
     ADDITIONAL_RECORD_LENGTH,
     POOL_FACTOR_RECORD_LENGTH,
     parse_monthly_factor_file,
+    parse_monthly_freddie_file,
     parse_monthly_remic_file,
 )
 from agency_mbs.store import get_connection, get_factor_history, init_db, upsert_factor_records
@@ -90,7 +97,32 @@ def _extract_if_zipped(path: Path) -> Path:
         return path.parent / members[0]
 
 
+def _store_records(records: list[dict]) -> int:
+    conn = get_connection()
+    init_db(conn)
+    written = upsert_factor_records(conn, records)
+    with_factor = sum(1 for r in records if r["current_factor"] is not None)
+    print(f"{written} registros guardados ({with_factor} con factor, {written - with_factor} sin).")
+    return 0
+
+
+def _ingest_freddie() -> int:
+    cookie, csrf_token = load_freddie_session()
+    latest_year = max(fetch_monthly_years(cookie, csrf_token))
+    document = latest_factor_document(cookie, csrf_token, latest_year)
+    print(f"Descargando {document['name']}...")
+    raw_path = download_document(
+        cookie, csrf_token, document["id"], document["name"], dest_dir=RAW_DATA_DIR
+    )
+    data_path = _extract_if_zipped(raw_path)
+    records = parse_monthly_freddie_file(data_path)
+    return _store_records(records)
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
+    if args.prefix == "freddie":
+        return _ingest_freddie()
+
     parse_file = _PREFIX_PARSERS.get(args.prefix)
     if parse_file is None:
         print(
@@ -115,15 +147,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         entry["directoryName"], entry["fileName"], session_cookie=cookie, dest_dir=RAW_DATA_DIR
     )
     data_path = _extract_if_zipped(raw_path)
-
     records = parse_file(data_path)
-    conn = get_connection()
-    init_db(conn)
-    written = upsert_factor_records(conn, records)
-
-    with_factor = sum(1 for r in records if r["current_factor"] is not None)
-    print(f"{written} registros guardados ({with_factor} con factor, {written - with_factor} sin).")
-    return 0
+    return _store_records(records)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -140,7 +165,8 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "prefix",
         help="factorA1 (Ginnie I), factorA2 (Ginnie II), factorAplat (Platinum), "
-        "factorAAdd (Additional), remic1/remic2 (REMIC/CMO tranches)",
+        "factorAAdd (Additional), remic1/remic2 (REMIC/CMO tranches), "
+        "freddie (Freddie Mac, latest monthly Security Core File)",
     )
     ingest.set_defaults(func=cmd_ingest)
 

@@ -6,7 +6,7 @@
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange.svg)](#status)
 
 Open-source tracker for the monthly amortization history of agency MBS/CMO
-pools (Ginnie Mae, and eventually Freddie Mac). Agency MBS/CMO paydown is
+pools (Ginnie Mae and Freddie Mac). Agency MBS/CMO paydown is
 collateral-driven: the issuer reports, month by month, how much of the pool
 has amortized based on scheduled principal, borrower prepayments, and other
 returns of principal — expressed as a **pool factor** (remaining balance as
@@ -56,18 +56,25 @@ look it up by ISIN or CUSIP.
   - REMIC/CMO tranche factors: `remic1`, `remic2` — a different, 117-char
     tranche-level layout (`parse_remic_tranche_line` /
     `parse_monthly_remic_file`).
+  - Freddie Mac pool factors: `parse_monthly_freddie_file` — a pipe-delimited
+    file **with its own header row** (98 named columns), so fields are
+    looked up by name instead of hardcoded byte positions. Verified
+    against a real authenticated download (461,779 records). Freddie also
+    discloses a real WAM (`WA Current Remaining Months to Maturity`),
+    which Ginnie Mae's pool-level files don't have at all.
 - ✅ `agency_mbs.store` — SQLite schema + upsert/read for monthly
   pool/tranche-factor history, keyed on `pool_id` (not `cusip` — see
   [Architecture](#architecture) for why that matters).
 - ✅ `agency_mbs.cli` — `agency-mbs lookup <ISIN|CUSIP>` against whatever is
   already in the local database.
 - ✅ **Full pipeline works end-to-end against real, live, authenticated
-  data** for all 6 supported prefixes: `agency-mbs ingest <prefix>`
-  downloads the current month's real bulk file (needs a `gm_up_token`
-  session cookie — see [Authentication](#authentication)), unzips it,
-  parses it, and stores it. Verified against the real July 2026 files:
+  data** for all 6 Ginnie Mae prefixes plus Freddie Mac:
+  `agency-mbs ingest <prefix>` downloads the current bulk file (each
+  agency needs its own session — see [Authentication](#authentication)),
+  unzips it, parses it, and stores it. Verified against real files:
   106,393 Ginnie I records, 308,073 Ginnie II, 308,073 Additional, 6,979
-  Platinum, 37,969 REMIC1 tranches, 154,085 REMIC2 tranches.
+  Platinum, 37,969 REMIC1 tranches, 154,085 REMIC2 tranches (all July
+  2026), and 462,779 Freddie Mac records (August 2026).
 
 ## Why this project exists
 
@@ -94,21 +101,29 @@ analyzed directly.
   [Tax and Factor Data Search](https://www.ginniemae.gov/disclosure/disclosure-search-tools/tax-and-factor-data-search).
   Ginnie Mae is a wholly-owned U.S. government corporation (HUD); it is not
   an agency or establishment of the U.S. Government.
-- **Freddie Mac** — not wired up yet. Needs its own bulk-file source
-  confirmed (avoid scraping third-party fronts like
-  `freddiemac.mbs-securities.com` if an official bulk download exists —
-  TBD).
+- **Freddie Mac** — bulk disclosure via its own Capital Markets site
+  (<https://capitalmarkets.freddiemac.com/mbs/security-data/mbs-disclosure-resources>),
+  which links directly to <https://freddiemac.mbs-securities.com/> — a
+  React SPA (confirmed as Freddie's own, not a third-party front: its own
+  branding/favicon/Google Analytics id) for the actual bulk downloads. Its
+  real backend API (reverse-engineered from its JS bundle and confirmed
+  request captures — see `fetch_freddie.py`'s docstring) needs a logged-in
+  session for every call, including just listing available files. Layout
+  documented in Freddie's own [Disclosure
+  Guide](https://capitalmarkets.freddiemac.com/mbs/docs/disclosure_guide.pdf)
+  (v6.2, "Security Core File" section).
 
 ## Architecture
 
 ```
-fetch.py   -> catalog/sample endpoints (public) + bulk file download (needs a session);
-              downloads saved as-is under data/raw/
-parse.py   -> normalizes a raw file into pool/tranche-factor records
-store.py   -> SQLite: one row per (pool_id, factor_date), history never overwritten
-isin.py    -> ISIN <-> CUSIP, with check-digit validation on both
-cli.py     -> `agency-mbs ingest <prefix>` (fetch+parse+store) and
-              `agency-mbs lookup <ISIN|CUSIP>` (read what's stored)
+fetch.py         -> Ginnie Mae: catalog/sample endpoints (public) + bulk file
+                     download (needs a session); downloads saved as-is under data/raw/
+fetch_freddie.py -> Freddie Mac: years/document-list/download endpoints (all need a session)
+parse.py         -> normalizes a raw file into pool/tranche-factor records, both agencies
+store.py         -> SQLite: one row per (pool_id, factor_date), history never overwritten
+isin.py          -> ISIN <-> CUSIP, with check-digit validation on both
+cli.py           -> `agency-mbs ingest <prefix>` (fetch+parse+store) and
+                     `agency-mbs lookup <ISIN|CUSIP>` (read what's stored)
 ```
 
 Normalized schema (`pool_factors` table): `pool_id, cusip, issuer,
@@ -162,6 +177,25 @@ without one (confirmed by request, not assumed). To unlock `ingest`:
 The catalog/sample endpoints (used by `lookup` once ingested, and by the
 parser's own test fixtures) need no login at all.
 
+**Freddie Mac** needs a session for *every* call, including just listing
+files. Get one from a logged-in browser session at
+freddiemac.mbs-securities.com:
+
+1. Log in (register a free account if you don't have one), then go to
+   Single Class -> Monthly.
+2. Open DevTools -> Network, click any file, and find an `/api/report/...`
+   request.
+3. From that request's **Headers** tab (not Application/Cookies — those
+   show pre-login cookies too), copy the full `Cookie` request header and
+   the `x-csrf-token` request header. Save each directly from your own
+   terminal:
+   ```bash
+   echo -n "<Cookie header value>" > data/freddie_cookie.txt
+   echo -n "<x-csrf-token value>" > data/freddie_csrf_token.txt
+   ```
+   Both files are gitignored and only read by
+   `agency_mbs.fetch_freddie.load_freddie_session()`.
+
 ## Usage
 
 ```bash
@@ -171,6 +205,7 @@ agency-mbs ingest factorAplat       # Platinum pool factors
 agency-mbs ingest factorAAdd        # Additional (Ginnie II, MIP-aware) pool factors
 agency-mbs ingest remic1            # REMIC/CMO tranche factors
 agency-mbs ingest remic2            # REMIC/CMO tranche factors (2nd feed)
+agency-mbs ingest freddie           # Freddie Mac pool factors (latest monthly file)
 agency-mbs lookup US38384CNA35
 agency-mbs lookup 38384CNA3
 ```
@@ -184,6 +219,10 @@ ruff check src/ tests/
 
 ## Roadmap
 
-- [ ] Monthly scheduled ingestion (cron/systemd timer).
-- [ ] Freddie Mac source.
+- [ ] Monthly scheduled ingestion (cron/systemd timer) — including Freddie
+      Mac, whose session cookie will need periodic refreshing since it's a
+      browser login, not an API key.
+- [ ] Historical backfill — Freddie Mac's `listyears` endpoint already
+      confirms data back to 2018 (unlike Ginnie Mae, which only exposes
+      the current month); not pulled yet.
 - [ ] REST API / Streamlit dashboard on top of the local database.
