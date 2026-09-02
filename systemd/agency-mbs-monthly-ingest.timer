@@ -1,0 +1,15 @@
+[Unit]
+Description=Run agency-mbs-tracker monthly ingest on day 10 of each month
+# Day 10 gives buffer past the ~4th-6th business day both agencies
+# actually publish on (confirmed against real filenames/dates during
+# development, e.g. Ginnie/Freddie files dated around the 6th).
+
+[Timer]
+OnCalendar=*-*-10 06:00:00
+# If the WSL instance was off at the scheduled time (Windows host asleep,
+# WSL not started, etc.), run once as soon as it's next up instead of
+# waiting for next month.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

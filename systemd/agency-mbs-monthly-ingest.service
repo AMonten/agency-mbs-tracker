@@ -1,0 +1,11 @@
+[Unit]
+Description=agency-mbs-tracker monthly ingest (Ginnie Mae + Freddie Mac)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alberto
+Environment=HOME=/home/alberto
+WorkingDirectory=/home/alberto/agency-mbs-tracker
+ExecStart=/home/alberto/agency-mbs-tracker/scripts/monthly_ingest.sh

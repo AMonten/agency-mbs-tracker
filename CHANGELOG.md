@@ -216,3 +216,21 @@
     naturally, one row per `(pool_id, factor_date)`, as `ingest` runs
     forward each month — same mechanism that already gives Freddie Mac
     its history.
+
+## 2026-09-01 (continued) — monthly scheduled ingestion
+
+- New `scripts/monthly_ingest.sh`: runs `agency-mbs ingest <prefix>` for
+  all 7 supported sources (6 Ginnie Mae prefixes + `freddie`), continuing
+  past any single prefix's failure (e.g. Freddie's session cookie
+  expiring) instead of aborting the whole run, and exiting non-zero at
+  the end if anything failed so `journalctl` surfaces it.
+- New `systemd/agency-mbs-monthly-ingest.{service,timer}`, following this
+  environment's existing pattern (see `~/README.md`'s
+  `sync-win-host-ip.timer`): day 10 of each month (buffer past the
+  ~4th-6th-business-day publish schedule both agencies actually use),
+  `Persistent=true` so a run missed while the WSL/Windows host was off
+  fires once as soon as it's next up. Verified the unit files parse with
+  `systemd-analyze verify` and the script's syntax with `bash -n`; not
+  auto-installed since it needs `sudo` (interactive password, no
+  `NOPASSWD` in this environment) — documented as a manual install step
+  in the README instead.

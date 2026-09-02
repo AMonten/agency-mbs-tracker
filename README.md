@@ -27,6 +27,7 @@ look it up by ISIN or CUSIP.
 - [Installation](#installation)
 - [Authentication](#authentication)
 - [Usage](#usage)
+- [Scheduled ingestion](#scheduled-ingestion)
 - [Testing](#testing)
 - [Roadmap](#roadmap)
 
@@ -74,7 +75,13 @@ look it up by ISIN or CUSIP.
   unzips it, parses it, and stores it. Verified against real files:
   106,393 Ginnie I records, 308,073 Ginnie II, 308,073 Additional, 6,979
   Platinum, 37,969 REMIC1 tranches, 154,085 REMIC2 tranches (all July
-  2026), and 462,779 Freddie Mac records (August 2026).
+  2026), and 462,779 Freddie Mac records (August 2026). Freddie Mac also
+  has a real 12-month backfill (5,241,866 records) via `agency-mbs
+  backfill freddie`.
+- ✅ `scripts/monthly_ingest.sh` + `systemd/` — runs `ingest` for all 7
+  sources monthly, continuing past any single source's failure. Not
+  auto-installed (needs `sudo`) — see [Scheduled
+  ingestion](#scheduled-ingestion).
 
 ## Why this project exists
 
@@ -253,6 +260,32 @@ own API not yet reverse-engineered. Ginnie Mae history will accumulate
 naturally instead, one row per `(pool_id, factor_date)`, as `ingest` runs
 forward each month.
 
+## Scheduled ingestion
+
+`scripts/monthly_ingest.sh` runs `agency-mbs ingest <prefix>` for all 7
+supported sources (the 6 Ginnie Mae prefixes + `freddie`), continuing past
+any single prefix's failure so one broken source (e.g. Freddie's session
+cookie expiring — see [Authentication](#authentication)) doesn't block
+the others; it exits non-zero at the end if anything failed, so
+`journalctl` surfaces it. `systemd/` has the matching timer/service pair,
+following this environment's existing pattern (see `~/README.md`'s
+`sync-win-host-ip.timer` section) — day 10 of each month, `Persistent=true`
+so a missed run (WSL/Windows host off at the scheduled time) fires once
+as soon as it's next up, instead of waiting a full month.
+
+Installing the timer needs `sudo` (interactive password, no `NOPASSWD` in
+this environment), so it's not run automatically — install it yourself:
+
+```bash
+sudo cp systemd/agency-mbs-monthly-ingest.service systemd/agency-mbs-monthly-ingest.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now agency-mbs-monthly-ingest.timer
+
+# Check it's scheduled, and inspect a run's output:
+systemctl list-timers agency-mbs-monthly-ingest.timer
+journalctl -u agency-mbs-monthly-ingest.service -n 50 --no-pager
+```
+
 ## Testing
 
 ```bash
@@ -262,9 +295,10 @@ ruff check src/ tests/
 
 ## Roadmap
 
-- [ ] Monthly scheduled ingestion (cron/systemd timer) — including Freddie
-      Mac, whose session cookie will need periodic refreshing since it's a
-      browser login, not an API key.
+- [x] Monthly scheduled ingestion — see [Scheduled ingestion](#scheduled-ingestion).
+      Freddie Mac's session cookie will still need periodic manual
+      refreshing since it's a browser login, not an API key — the timer
+      just surfaces that failure via `journalctl` rather than fixing it.
 - [ ] (Optional, not planned) Ginnie Mae per-CUSIP history lookup via the
       "Tax and Factor Data Search" tool — capped at 20 CUSIPs/query, needs
       its own reverse-engineering; no bulk backfill exists for Ginnie Mae
