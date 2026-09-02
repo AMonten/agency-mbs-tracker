@@ -115,3 +115,31 @@ def isin_to_cusip(isin: str, *, validate: bool = True) -> str:
     if validate:
         validate_cusip(cusip)
     return cusip
+
+
+def resolve_identifier(identifier: str) -> str:
+    """Resolve a user-supplied lookup identifier (CLI/API) to a CUSIP.
+
+    12 characters -> treated as an ISIN, fully validated (both the ISIN's
+    own check digit and the extracted CUSIP's).
+
+    9 characters -> treated as a raw CUSIP, length-checked only — NOT
+    checksum-validated. Some real data this project stores uses
+    non-checksummed placeholder CUSIPs (e.g. "C99999999", which Ginnie Mae
+    assigns to REMIC tranches without an individually-issued CUSIP — see
+    agency_mbs.store's module docstring); rejecting those here would make
+    real, already-stored data unlookupable. A lookup on a genuinely wrong
+    CUSIP just returns no rows, which is a fine outcome for a typo.
+
+    Any other length is almost certainly a transcription error, so it's
+    rejected rather than silently attempted.
+    """
+    identifier = identifier.strip().upper()
+    if len(identifier) == 12:
+        return isin_to_cusip(identifier)
+    if len(identifier) == 9:
+        return identifier
+    raise InvalidCUSIPError(
+        f"Expected a 9-character CUSIP or 12-character ISIN, got {len(identifier)} "
+        f"characters: {identifier!r}"
+    )

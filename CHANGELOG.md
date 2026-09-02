@@ -258,3 +258,40 @@
   the wrong tool entirely — cloud agents have no access to a local
   machine's `systemd`/`journalctl` at all, so a self-notifying script was
   the only real solution to "let me know when this runs."
+
+## 2026-09-01 (continued) — REST API
+
+- New `agency_mbs.api` (FastAPI, needs the new `api` extra:
+  `pip install -e ".[api]"`) — a thin read-only layer over
+  `agency_mbs.store`, no business logic duplicated: `GET /health` and
+  `GET /lookup/{identifier}` (12-char ISIN or 9-char CUSIP, same rule as
+  the CLI). New `agency-mbs serve [--host] [--port]` runs it, binding
+  `127.0.0.1` by default — no auth layer exists, so it isn't meant to be
+  exposed on the network.
+- **Found and fixed a real threading bug, not just a test artifact:**
+  FastAPI can resolve a sync dependency (`get_db`) and run the route's own
+  sync body in two different threadpool worker threads for the same
+  request; SQLite's default `check_same_thread=True` rejects that even
+  though only one thread ever touches the connection at a time.
+  `agency_mbs.store.get_connection` gained a `check_same_thread` keyword
+  (default unchanged) so the API can opt into `False`. Confirmed this
+  wasn't just a `TestClient` quirk by reproducing it against a real
+  running `uvicorn` server via curl.
+- **Found and fixed a real, separate bug this surfaced in the existing
+  CLI too:** Ginnie Mae's shared placeholder CUSIP for non-CUSIP-eligible
+  REMIC tranches (`"C99999999"`, from the earlier shared-CUSIP fix) fails
+  a real CUSIP checksum by construction — it's a sentinel, not an assigned
+  identifier. The CLI's `lookup` (and the new API) both ran every 9-char
+  identifier through `validate_cusip`, meaning `agency-mbs lookup
+  C99999999` would have 400'd on real, already-stored data. Centralized
+  the previously-duplicated CLI/API resolution logic into
+  `agency_mbs.isin.resolve_identifier`: a 12-char identifier is still
+  fully checksum-validated as an ISIN (a mistyped ISIN is a real, common
+  failure worth catching), but a 9-char one is now only length-checked,
+  not checksum-validated — a genuinely wrong CUSIP just returns no rows,
+  a harmless outcome for a typo.
+- 77/77 tests passing (`tests/test_api.py` didn't exist before this
+  change), `ruff`+`mypy` clean (added a documented per-file ignore for
+  ruff's B008 on `api.py` — FastAPI's `Depends(...)` default-argument
+  pattern is idiomatic, not the mutable-default bug that rule normally
+  catches).

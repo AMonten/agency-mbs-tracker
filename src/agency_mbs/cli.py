@@ -23,7 +23,7 @@ from agency_mbs.fetch_freddie import (
     list_factor_documents,
     load_freddie_session,
 )
-from agency_mbs.isin import InvalidCUSIPError, InvalidISINError, isin_to_cusip, validate_cusip
+from agency_mbs.isin import InvalidCUSIPError, InvalidISINError, resolve_identifier
 from agency_mbs.notify import send_telegram_message
 from agency_mbs.parse import (
     ADDITIONAL_RECORD_LENGTH,
@@ -48,16 +48,9 @@ _PREFIX_PARSERS: dict[str, Callable[[Path], list[dict]]] = {
 }
 
 
-def _resolve_cusip(identifier: str) -> str:
-    identifier = identifier.strip().upper()
-    if len(identifier) == 12:
-        return isin_to_cusip(identifier)
-    return validate_cusip(identifier)
-
-
 def cmd_lookup(args: argparse.Namespace) -> int:
     try:
-        cusip = _resolve_cusip(args.identifier)
+        cusip = resolve_identifier(args.identifier)
     except (InvalidISINError, InvalidCUSIPError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -211,6 +204,19 @@ def cmd_notify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "error: the REST API needs the 'api' extra: pip install -e \".[api]\"",
+            file=sys.stderr,
+        )
+        return 1
+    uvicorn.run("agency_mbs.api:app", host=args.host, port=args.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agency-mbs")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -244,6 +250,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     notify.add_argument("message", help="Message text to send")
     notify.set_defaults(func=cmd_notify)
+
+    serve = subparsers.add_parser(
+        "serve", help="Run the read-only REST API (needs the 'api' extra)"
+    )
+    serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1, no auth)")
+    serve.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    serve.set_defaults(func=cmd_serve)
 
     return parser
 

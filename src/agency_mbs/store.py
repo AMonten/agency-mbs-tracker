@@ -57,10 +57,18 @@ CREATE INDEX IF NOT EXISTS idx_pool_factors_cusip ON pool_factors (cusip);
 """
 
 
-def get_connection(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
+def get_connection(
+    db_path: Path | str = DEFAULT_DB_PATH, *, check_same_thread: bool = True
+) -> sqlite3.Connection:
+    """Open a connection. `check_same_thread=False` is for agency_mbs.api's
+    per-request dependency: FastAPI can resolve a sync dependency and run
+    the route's own sync body in two different threadpool worker threads,
+    which the sqlite3 default (True) would reject even though only one
+    thread ever touches this connection at a time.
+    """
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
     return conn
 

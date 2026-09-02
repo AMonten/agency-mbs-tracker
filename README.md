@@ -28,6 +28,7 @@ look it up by ISIN or CUSIP.
 - [Authentication](#authentication)
 - [Usage](#usage)
 - [Scheduled ingestion](#scheduled-ingestion)
+- [REST API](#rest-api)
 - [Testing](#testing)
 - [Roadmap](#roadmap)
 
@@ -84,6 +85,10 @@ look it up by ISIN or CUSIP.
   past any single source's failure, and sends a ✅/❌ Telegram summary via
   `agency-mbs notify` (optional, reuses the same bot the Windows-side
   scripts already use) — see [Scheduled ingestion](#scheduled-ingestion).
+- ✅ `agency_mbs.api` — a read-only REST API (`agency-mbs serve`, needs
+  the `api` extra) over `get_factor_history`, with interactive docs at
+  `/docs` (FastAPI's default). Verified end-to-end against a real running
+  server, not just `TestClient` — see [REST API](#rest-api).
 
 ## Why this project exists
 
@@ -130,9 +135,11 @@ fetch.py         -> Ginnie Mae: catalog/sample endpoints (public) + bulk file
 fetch_freddie.py -> Freddie Mac: years/document-list/download endpoints (all need a session)
 parse.py         -> normalizes a raw file into pool/tranche-factor records, both agencies
 store.py         -> SQLite: one row per (pool_id, factor_date), history never overwritten
-isin.py          -> ISIN <-> CUSIP, with check-digit validation on both
-cli.py           -> `agency-mbs ingest <prefix>` (fetch+parse+store) and
-                     `agency-mbs lookup <ISIN|CUSIP>` (read what's stored)
+isin.py          -> ISIN <-> CUSIP, with check-digit validation on both;
+                     resolve_identifier() is the shared CLI+API lookup rule
+notify.py        -> Telegram notifications (optional, best-effort)
+api.py           -> read-only REST API over store.py (needs the `api` extra)
+cli.py           -> `agency-mbs ingest/backfill/lookup/notify/serve`
 ```
 
 Normalized schema (`pool_factors` table): `pool_id, cusip, issuer,
@@ -177,6 +184,16 @@ into a single row; `pool_id` (the real pool number, or
 `<series>-<tranche_name>` for REMIC) is what Ginnie Mae actually assigns
 uniquely, so `agency-mbs lookup` on one of these shared CUSIPs correctly
 returns every tranche that shares it, not just the last one ingested.
+
+**Lookup (`resolve_identifier`, shared by the CLI and the REST API) never
+checksum-validates a 9-character CUSIP, only its length.** These
+placeholder values (like `"C99999999"`) fail a real CUSIP check digit by
+construction — they're sentinels, not assigned identifiers — so a strict
+checksum would make real, already-stored data unlookupable. A 12-char
+ISIN is still fully checksum-validated on both the ISIN and the CUSIP it
+resolves to, since a mistyped ISIN is a real, common failure mode worth
+catching early; a wrong-but-real-shaped CUSIP just returns no rows, which
+is a harmless outcome for a typo.
 
 ## Installation
 
@@ -310,6 +327,46 @@ silently no-ops if either file is missing, matching
 `Send-TelegramAlert.ps1`'s own "never let an alert failure break the real
 automation" philosophy on the Windows side.
 
+## REST API
+
+A thin, read-only HTTP layer over the same `agency_mbs.store` functions
+the CLI's `lookup` uses — no business logic duplicated in `api.py`.
+
+```bash
+pip install -e ".[api]"
+agency-mbs serve                    # binds 127.0.0.1:8000 by default
+curl http://127.0.0.1:8000/lookup/US38384CNA35
+curl http://127.0.0.1:8000/lookup/38384CNA3
+```
+
+Interactive docs (FastAPI's default) at `http://127.0.0.1:8000/docs`.
+
+- `GET /health` — `{"status": "ok"}`.
+- `GET /lookup/{identifier}` — 12-char ISIN or 9-char CUSIP, same
+  resolution rule as the CLI (`agency_mbs.isin.resolve_identifier`).
+  Returns `{cusip, distinct_pool_count, periods}`, oldest period first.
+  `distinct_pool_count > 1` means this CUSIP is one of Ginnie Mae's shared
+  placeholder values for non-CUSIP-eligible REMIC tranches (see
+  [Architecture](#architecture)) — `periods` then covers every tranche
+  that shares it. An identifier of the wrong length is a `400`; a
+  well-formed one with no matching data is a `200` with `periods: []`
+  (not a `404` — a CUSIP not yet ingested isn't an error).
+
+**No authentication** — this binds to `127.0.0.1` by default precisely
+because there's no auth layer to protect a `0.0.0.0` bind; it's meant for
+local/same-machine use (e.g. a Streamlit app or a notebook on the same
+box), not for exposing over a network.
+
+**A real threading gotcha, fixed, not just avoided in tests:** FastAPI can
+resolve a sync dependency (`get_db`) and run the route's own sync body in
+two *different* threadpool worker threads for the same request — SQLite's
+default `check_same_thread=True` rejects that even though only one thread
+ever touches the connection at a time. `agency_mbs.store.get_connection`
+gained a `check_same_thread` keyword (default unchanged, `True`) so
+`agency_mbs.api.get_db` can opt into `False` specifically; confirmed this
+was a real bug (not a test artifact) by reproducing it against a live
+`uvicorn` server, not just `TestClient`.
+
 ## Testing
 
 ```bash
@@ -327,4 +384,5 @@ ruff check src/ tests/
       "Tax and Factor Data Search" tool — capped at 20 CUSIPs/query, needs
       its own reverse-engineering; no bulk backfill exists for Ginnie Mae
       (confirmed — see the [Usage](#usage) note above).
-- [ ] REST API / Streamlit dashboard on top of the local database.
+- [x] REST API — see [REST API](#rest-api). Streamlit dashboard still
+      not started (the operator chose REST API first).
