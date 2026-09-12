@@ -80,8 +80,8 @@ look it up by ISIN or CUSIP.
   has a real 12-month backfill (5,241,866 records) via `agency-mbs
   backfill freddie`.
 - ✅ `scripts/monthly_ingest.sh` + `systemd/` — **installed and running**
-  on the operator's machine (`agency-mbs-monthly-ingest.timer` enabled, next
-  fire 2026-09-10), runs `ingest` for all 7 sources monthly, continuing
+  on the operator's machine (`agency-mbs-monthly-ingest.timer` enabled,
+  next fire 2026-09-10), runs `ingest` for all 7 sources monthly, continuing
   past any single source's failure, and sends a ✅/❌ Telegram summary via
   `agency-mbs notify` (optional, reuses the same bot the Windows-side
   scripts already use) — see [Scheduled ingestion](#scheduled-ingestion).
@@ -294,7 +294,7 @@ as soon as it's next up, instead of waiting a full month.
 
 Installing the timer needs `sudo` (interactive password, no `NOPASSWD` in
 this environment), so it's not run automatically — install it yourself,
-**from a real terminal** (an AI coding assistant's `!`-prefix bridge does not
+**from a real terminal** (an AI coding assistant's shell bridge may not
 allocate a TTY, so `sudo` can't prompt for a password through it —
 confirmed: `sudo: a terminal is required to read the password`):
 
@@ -310,12 +310,11 @@ journalctl -u agency-mbs-monthly-ingest.service -n 50 --no-pager
 
 **Telegram notifications** — `scripts/monthly_ingest.sh` sends a one-line
 ✅/❌ summary via `agency-mbs notify` at the end of each run, reusing the
-same bot the operator's Windows-side scripts already use for Refinitiv/BNY2.0
-alerts (see `C:\Users\operator\Scripts\README.md`'s "Alertas de
-Telegram" section) — same bot, same `chat_id`. That side reads the token
-from Windows user environment variables, which aren't visible from WSL,
-so this side reads the same two values from local, gitignored files
-instead:
+same Telegram bot the operator's other, separate Windows-side automation
+already uses for unrelated task alerts — same bot, same `chat_id`. That
+side reads the token from a Windows-only environment variable store,
+which isn't visible from WSL, so this side reads the same two values
+from local, gitignored files instead:
 
 ```bash
 echo -n "<bot token>" > data/telegram_bot_token.txt
@@ -385,4 +384,4 @@ ruff check src/ tests/
       its own reverse-engineering; no bulk backfill exists for Ginnie Mae
       (confirmed — see the [Usage](#usage) note above).
 - [x] REST API — see [REST API](#rest-api). Streamlit dashboard still
-      not started (the operator chose REST API first).
+      not started (REST API was chosen first).

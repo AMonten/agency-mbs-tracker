@@ -15,8 +15,8 @@
   session cookie).
 - `agency_mbs.fetch`: implemented and tested against the live API — public
   catalog/sample endpoints work end-to-end; `download_bulk_file` is ready
-  but needs a logged-in session (`gm_up_token` cookie) that only the operator's
-  own account can provide.
+  but needs a logged-in session (`gm_up_token` cookie) that only the
+  operator's own account can provide.
 - `agency_mbs.parse`: real fixed-width parser for the Ginnie Mae I
   ("FACTOR A G I" / `factorA1`) file, built against the agency's own
   published layout PDF and verified against its real public sample file
@@ -115,8 +115,8 @@
   `freddiemac.mbs-securities.com` we worried about earlier — it's directly
   linked from Freddie's own capitalmarkets.freddiemac.com and carries
   Freddie's own branding/analytics. Reverse-engineered its React bundle
-  and, with the operator capturing real authenticated requests from his own
-  browser session (`Copy as fetch` / cURL), found the real API:
+  and, with the operator capturing real authenticated requests from their
+  own browser session (`Copy as fetch` / cURL), found the real API:
   `/api/report/freddie/listyears/<category_id>/<slug>` (which years have
   data — Freddie's goes back to at least 2018, unlike Ginnie Mae's
   current-month-only catalog), `/api/report/freddie/list/<category_id>/<year>`
@@ -209,7 +209,7 @@
     CUSIPs/pools per query with ~12 months of history, and the tool has
     moved off the old `TFDSearch.aspx` page onto Ginnie Mae's newer site
     (same SPA family as `bulk.ginniemae.gov`), meaning its real API isn't
-    reverse-engineered yet. the operator's call: not worth pursuing right now
+    reverse-engineered yet. Operator's call: not worth pursuing right now
     — it's a per-CUSIP lookup tool, not a bulk backfill, and would need
     its own research effort for a capped, narrower payoff than Freddie's.
   - Decision: no Ginnie Mae backfill for now. History accumulates
@@ -236,18 +236,17 @@
   in the README instead.
 - Installed and enabled on the operator's machine (`agency-mbs-monthly-ingest.timer`
   active/waiting, next trigger 2026-09-10 06:00 EST). Found along the way
-  that an AI coding assistant's `!`-prefix bridge doesn't allocate a TTY, so `sudo`
+  that an AI coding assistant's shell bridge doesn't allocate a TTY, so `sudo`
   can't prompt through it (`sudo: a terminal is required to read the
-  password`) — the operator had to run the install commands from his own real
+  password`) — the operator had to run the install commands from a real
   terminal instead. Documented in the README so this isn't rediscovered
   next time.
 - New `agency-mbs notify <message>` + `agency_mbs.notify.send_telegram_message`:
   the monthly script now sends a one-line ✅/❌ summary via Telegram at the
-  end of each run, reusing the exact same bot the operator's Windows-side
-  scripts already use for Refinitiv/BNY2.0 alerts (same bot, same
-  `chat_id` — see `C:\Users\operator\Scripts\README.md`'s
-  "Alertas de Telegram" section). That side reads the token from Windows
-  user environment variables (not visible from WSL); this side reads the
+  end of each run, reusing the exact same Telegram bot the operator's
+  other, separate Windows-side automation already uses for unrelated
+  alerts (same bot, same `chat_id`). That side reads the token from a
+  Windows-only environment variable store (not visible from WSL); this side reads the
   same two values from local gitignored files
   (`data/telegram_bot_token.txt`, `data/telegram_chat_id.txt`) instead —
   same secret-handling convention as the Ginnie/Freddie session cookies.
